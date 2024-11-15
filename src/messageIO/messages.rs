@@ -32,7 +32,7 @@ impl UserDiscovery {
     // String added to decrease possibility of accidental discovery.
     const UNIQUE_SUFFIX: &'static str = "CHATapp>4RxPOv@1Gy8SZ8syH7$MlVAA2>0y]D`%KTIN\"Y[Lk9Z}\"k{p)";
 
-    // TODO: own serializer to avoid possiblity of error.
+    // TODO: own serializer to avoid possiblity of error when serializing.
     fn to_packet(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         let msg_data = serialize(self)?;
         let msg_len = (msg_data.len() as u64).to_be_bytes();
