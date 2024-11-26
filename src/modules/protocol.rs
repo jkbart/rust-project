@@ -39,27 +39,37 @@ impl UserDiscovery {
 
         let mut packet = Vec::new();
 
+        packet.extend_from_slice(UNIQUE_BYTES);
         packet.extend_from_slice(&msg_len);
         packet.extend(msg_data);
-        packet.extend_from_slice(UNIQUE_BYTES);
 
         Ok(packet)
     }
 
     pub fn from_packet(packet: Vec<u8>) -> Result<Self, Box<dyn Error>> {
-        let msg_len = u64::from_be_bytes(packet[0..8].try_into()?) as usize;
-
-        if packet.len() != 8 + msg_len + UNIQUE_BYTES.len() {
-            return Err("Invalid packet length.".into());
+        if packet.len() < UNIQUE_BYTES.len() + 8 {
+            return Err("Discovery packet too short!".into());
         }
 
-        let data: UserDiscovery = bincode::deserialize(&packet[8..(8 + msg_len)])?;
+        let mut buff_idx = UNIQUE_BYTES.len();
 
-        if &packet[(8 + msg_len)..] != UNIQUE_BYTES {
-            return Err("Invalid suffix.".into());
+        // Compare the UNIQUE_BYTES.
+        if &packet[..buff_idx] != UNIQUE_BYTES {
+            return Err("UNIQUE_BYTES don't match!".into());
         }
 
-        // Return the deserialized struct
+        // Read length of UserDiscovery struct.
+        let msg_len = u64::from_be_bytes(packet[buff_idx..buff_idx + 8].try_into()?) as usize;
+
+        buff_idx += 8;
+
+        if packet.len() - buff_idx != msg_len {
+            return Err("Discovery packet too short!".into());
+        }
+
+        // Read UserDiscovery struct.
+        let data: UserDiscovery = bincode::deserialize(&packet[buff_idx..(buff_idx + msg_len)])?;
+
         Ok(data)
     }
 }
