@@ -89,7 +89,7 @@ async fn detect_new_users(conn_queue: mpsc::Sender<ConnectionData>) -> Result<()
 						},
 
 						Err(e) => {
-							info!("Couldnt connect to addr posted via MULTICAST!");
+							info!("Couldnt connect to addr posted via MULTICAST ({e})!");
 						}
 
         			}
