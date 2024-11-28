@@ -65,7 +65,7 @@ impl UserDiscovery {
         buff_idx += 8;
 
         if packet.len() - buff_idx != msg_len {
-            return Err("Discovery packet too short!".into());
+            return Err("Discovery packet incorrect length!".into());
         }
 
         // Read UserDiscovery struct.

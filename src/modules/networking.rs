@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+use std::net::SocketAddrV4;
 use tokio::net::UdpSocket;
 use tokio::time;
 use tokio::io::AsyncReadExt;
@@ -62,7 +64,40 @@ async fn socket_listener(connection_queue: mpsc::Sender<ConnectionData>) -> Resu
 
 // Detects new users on MULTICAST indefinitly.
 async fn detect_new_users(conn_queue: mpsc::Sender<ConnectionData>) -> Result<(), Box<dyn std::error::Error>> {
+    let socket = UdpSocket::bind("127.0.0.1:0").await?;
+    let used_port = socket.local_addr()?.port();
 
+    let multicast_addr = SocketAddrV4::new(MULTICAST_IP.parse()?, MULTICAST_PORT);
+      
+    socket.join_multicast_v4(*multicast_addr.ip(), Ipv4Addr::UNSPECIFIED)?;
 
-	Ok(())
+    loop {
+    	let mut buf = vec![0; 4048];
+        let (len, mut addr2) = socket.recv_from(&mut buf).await?;
+
+        match UserDiscovery::from_packet(buf[0..len].to_vec()) {
+        	Ok(disc) => {
+        		let q_clone = conn_queue.clone();
+        		addr2.set_port(disc.port); // update addr to point to tcp socket.
+
+        		tokio::task::spawn(async move {
+        			match TcpStream::connect(addr2).await {
+        				Ok(stream) => {
+							if let Err(e) = q_clone.send(ConnectionData { tcp_stream: stream, end_address: addr2 }).await {
+	    						info!("Failed to add connection to queue: {e}");
+	    					}
+						},
+
+						Err(e) => {
+							info!("Couldnt connect to addr posted via MULTICAST!");
+						}
+
+        			}
+        		});
+        	},
+        	Err(e) => {
+        		info!("UserDiscovery parsing error: {e}!");
+        	}
+        }
+    }
 }
