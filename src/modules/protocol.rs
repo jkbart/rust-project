@@ -26,14 +26,14 @@ pub struct Message {
 /// Should not be sent as plain serialization in order to avoid misdetections.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserDiscovery {
-    pub name: String,
+    // pub name: String,
     pub port: u16,
     pub user_id: u64,
 }
 
 impl UserDiscovery {
     // TODO: own serializer to avoid possiblity of error when serializing.
-    fn to_packet(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn to_packet(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         let msg_data = serialize(self)?;
         let msg_len = (msg_data.len() as u64).to_be_bytes();
 
@@ -43,6 +43,7 @@ impl UserDiscovery {
         packet.extend_from_slice(&msg_len);
         packet.extend(msg_data);
 
+        assert!(packet.len() < 4048); // Make sure it fits in one packet.
         Ok(packet)
     }
 
