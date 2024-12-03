@@ -15,7 +15,7 @@ async fn main() {
 
     info!("My name: {}", *USER_NAME);
 
-    let (rx, mut tx) = mpsc::channel::<ConnectionData>(100);
+    let (rx, mut tx) = mpsc::unbounded_channel::<ConnectionData>();
 
     let rx_clone = rx.clone();
 

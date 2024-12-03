@@ -24,7 +24,7 @@ pub struct ConnectionData {
 async fn establish_connection(
     mut stream: TcpStream,
     addr: SocketAddr,
-    conn_queue: mpsc::Sender<ConnectionData>,
+    conn_queue: mpsc::UnboundedSender<ConnectionData>,
 ) {
     match time::timeout(
         Duration::from_secs(2),
@@ -55,8 +55,7 @@ async fn establish_connection(
                     stream,
                     peer_address: addr,
                     peer_name: info.user_name,
-                })
-                .await;
+                });
         }
         Ok(Err(e)) => {
             error!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
@@ -70,7 +69,7 @@ async fn establish_connection(
 /// Detects new tcp connections on port indefinitly and annouces user presence on MULTICAST.
 async fn socket_listener(
     socket: Arc<(UdpSocket, SocketAddr)>,
-    connection_queue: mpsc::Sender<ConnectionData>,
+    connection_queue: mpsc::UnboundedSender<ConnectionData>,
 ) -> Result<(), StreamSerializerError> {
     let listener = TcpListener::bind("0.0.0.0:0").await?; // Port to listen for
     let used_port = listener.local_addr()?.port();
@@ -104,7 +103,7 @@ async fn socket_listener(
 
 /// Detects new users on MULTICAST indefinitly.
 pub async fn detect_new_users(
-    connection_queue: mpsc::Sender<ConnectionData>,
+    connection_queue: mpsc::UnboundedSender<ConnectionData>,
 ) -> Result<(), StreamSerializerError> {
     let socket = Arc::new(get_multicast_socket(&MULTICAST_IP, MULTICAST_PORT).await?);
 
