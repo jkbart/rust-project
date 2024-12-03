@@ -1,103 +1,193 @@
-use std::net::Ipv4Addr;
-use std::net::SocketAddrV4;
-use tokio::net::UdpSocket;
-use tokio::time;
-use tokio::io::AsyncReadExt;
-use tokio::time::Duration;
-use std::io;
-use tokio::net::TcpListener;
-use std::net::SocketAddr;
+use log::*;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
-use tokio::net::TcpStream;
-use log::info;
+use tokio::time;
+use tokio::time::Duration;
 
-use crate::config::{MULTICAST_IP, MULTICAST_PORT, UNIQUE_BYTES, USER_ID};
+use socket2::{Domain, Protocol, Socket, Type};
 
-use super::protocol::UserDiscovery;
+use crate::config::{MULTICAST_IP, MULTICAST_PORT, USER_ID, USER_NAME};
+
+use super::protocol::*;
 
 pub struct ConnectionData {
-	pub tcp_stream: TcpStream,
-	pub end_address: SocketAddr,
+    pub stream: TcpStream,
+    pub peer_address: SocketAddr,
+    // pub peer_id: u64,
+    pub peer_name: String,
 }
 
-// Validates connection by comparing first n bytes to UNIQUE_BYTES, and crates new ConnectionData at the end of mpsc.
-async fn validate_connection(mut socket: TcpStream, addr: SocketAddr, conn_queue: mpsc::Sender<ConnectionData>) {
-	let mut buffor = vec![0; UNIQUE_BYTES.len()];
-	match time::timeout(Duration::from_secs(2), socket.read_exact(&mut buffor)).await {
-	    Ok(_) => {
-	    	if buffor[..] != *UNIQUE_BYTES {
-	    		info!("Attempting connection with wrong UNIQUE_BYTES!")
-	    	} else {
-	    		if let Err(e) = conn_queue.send(ConnectionData { tcp_stream: socket, end_address: addr }).await {
-	    			info!("Failed to add connection to queue: {e}");
-	    		}
-	    	}
-	    },
-	    Err(e) => info!("Connection from {addr} timedout at start! ({e})"),
-	}
-}
-
-// Detects new tcp connections on port indefinitly and annouces user presence on MULTICAST.
-async fn socket_listener(connection_queue: mpsc::Sender<ConnectionData>) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
-    let used_port = listener.local_addr()?.port();
-
-    let multicast_addr = SocketAddr::new(MULTICAST_IP.parse()?, MULTICAST_PORT);
-    let invitation_packet = UserDiscovery{user_id: USER_ID, port: used_port}.to_packet()?;
-
-    // Invite other users to our port.
-    UdpSocket::bind("0.0.0.0:0").await?.send_to(&invitation_packet, multicast_addr).await?;
-
-    loop {
-	    match listener.accept().await {
-	        Ok((socket, addr)) => {
-	        	let q_clone = connection_queue.clone();
-
-	        	tokio::task::spawn(validate_connection(socket, addr, q_clone));
-	        },
-	        Err(e) => {
-	        	return Err(Box::new(e));
-	        }
-	    }
+/// Converts unread TcpStream into ConnectionData.
+async fn establish_connection(
+    mut stream: TcpStream,
+    addr: SocketAddr,
+    conn_queue: mpsc::Sender<ConnectionData>,
+) {
+    match time::timeout(
+        Duration::from_secs(2),
+        (ConnectionInfo {
+            user_name: (*USER_NAME).clone(),
+        })
+        .send(&mut stream),
+    )
+    .await
+    {
+        Ok(Err(e)) => {
+            info!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
+            return;
+        }
+        Err(e) => {
+            error!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
+            return;
+        }
+        _ => (),
     }
-}
 
-// Detects new users on MULTICAST indefinitly.
-async fn detect_new_users(conn_queue: mpsc::Sender<ConnectionData>) -> Result<(), Box<dyn std::error::Error>> {
-    let socket = UdpSocket::bind("127.0.0.1:0").await?;
-    let used_port = socket.local_addr()?.port();
+    info!("Sent connectionINfo");
 
-    let multicast_addr = SocketAddrV4::new(MULTICAST_IP.parse()?, MULTICAST_PORT);
-      
-    socket.join_multicast_v4(*multicast_addr.ip(), Ipv4Addr::UNSPECIFIED)?;
-
-    loop {
-    	let mut buf = vec![0; 4048];
-        let (len, mut addr2) = socket.recv_from(&mut buf).await?;
-
-        match UserDiscovery::from_packet(buf[0..len].to_vec()) {
-        	Ok(disc) => {
-        		let q_clone = conn_queue.clone();
-        		addr2.set_port(disc.port); // update addr to point to tcp socket.
-
-        		tokio::task::spawn(async move {
-        			match TcpStream::connect(addr2).await {
-        				Ok(stream) => {
-							if let Err(e) = q_clone.send(ConnectionData { tcp_stream: stream, end_address: addr2 }).await {
-	    						info!("Failed to add connection to queue: {e}");
-	    					}
-						},
-
-						Err(e) => {
-							info!("Couldnt connect to addr posted via MULTICAST ({e})!");
-						}
-
-        			}
-        		});
-        	},
-        	Err(e) => {
-        		info!("UserDiscovery parsing error: {e}!");
-        	}
+    match time::timeout(Duration::from_secs(2), ConnectionInfo::read(&mut stream)).await {
+        Ok(Ok(info)) => {
+            let _ = conn_queue
+                .send(ConnectionData {
+                    stream,
+                    peer_address: addr,
+                    peer_name: info.user_name,
+                })
+                .await;
+        }
+        Ok(Err(e)) => {
+            error!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
+        }
+        Err(e) => {
+            error!("Timed out during connection establishment: {:?}", e); // Ensure e is boxed with Send if necessary
         }
     }
+}
+
+/// Detects new tcp connections on port indefinitly and annouces user presence on MULTICAST.
+async fn socket_listener(
+    socket: Arc<(UdpSocket, SocketAddr)>,
+    connection_queue: mpsc::Sender<ConnectionData>,
+) -> Result<(), StreamSerializerError> {
+    let listener = TcpListener::bind("0.0.0.0:0").await?; // Port to listen for
+    let used_port = listener.local_addr()?.port();
+
+    trace!("Accepting tcp connections on  port {}", used_port);
+
+    let invitation_packet = UserDiscovery {
+        user_id: *USER_ID,
+        port: used_port,
+    }
+    .to_packet()?;
+
+    trace!("Sending invite on MULTICAST for port {}!", used_port);
+
+    socket.0.send_to(&invitation_packet, socket.1).await?;
+
+    drop(socket);
+
+    loop {
+        match listener.accept().await {
+            Ok((socket, addr)) => {
+                info!("Accepted new tcp connection from {}", addr);
+                tokio::task::spawn(establish_connection(socket, addr, connection_queue.clone()));
+            }
+            Err(e) => {
+                return Err(StreamSerializerError::Io(e));
+            }
+        }
+    }
+}
+
+/// Detects new users on MULTICAST indefinitly.
+pub async fn detect_new_users(
+    connection_queue: mpsc::Sender<ConnectionData>,
+) -> Result<(), StreamSerializerError> {
+    let socket = Arc::new(get_multicast_socket(&MULTICAST_IP, MULTICAST_PORT).await?);
+
+    let connection_queue_clone = connection_queue.clone();
+    let socket_clone = socket.clone();
+
+    tokio::task::spawn(async move {
+        match socket_listener(socket_clone, connection_queue_clone).await {
+            Ok(()) => {
+                info!("socket_listener ended with success!");
+            }
+            Err(e) => {
+                error!("socket_listener ended with error {:?}!", e);
+            }
+        }
+    });
+
+    trace!("Begining to listen on multicast!");
+
+    loop {
+        let mut buf = vec![0; 4096];
+        let (len, mut addr) = socket.0.recv_from(&mut buf).await?;
+        info!("Received some bytes on MULTICAST!");
+
+        match UserDiscovery::from_packet(buf[0..len].to_vec()) {
+            Ok(disc) => {
+                if disc.user_id == *USER_ID {
+                    continue;
+                }
+
+                addr.set_port(disc.port); // update addr to point to tcp socket.
+                info!("Multicast Userdiscovery packet received from: {:?}", addr);
+
+                match TcpStream::connect(addr).await {
+                    Ok(stream) => {
+                        info!("connected ot tcp {}", addr);
+                        tokio::task::spawn(establish_connection(
+                            stream,
+                            addr,
+                            connection_queue.clone(),
+                        ));
+                    }
+                    Err(e) => {
+                        error!("Couldnt connect to addr posted via MULTICAST {e}!");
+                    }
+                }
+            }
+            Err(e) => {
+                error!("UserDiscovery parsing error: {:?}!", e);
+            }
+        }
+    }
+}
+
+pub async fn get_multicast_socket(
+    mc_ip: &str,
+    mc_port: u16,
+) -> Result<(UdpSocket, SocketAddr), StreamSerializerError> {
+    // Parse the multicast address
+    let multicast_addr = SocketAddr::from_str(&format!("{mc_ip}:{mc_port}"))?;
+
+    // Create a `socket2` socket
+    let socket = match multicast_addr {
+        SocketAddr::V4(_) => Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?,
+        SocketAddr::V6(_) => Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?,
+    };
+
+    socket.set_reuse_address(true)?;
+    socket.set_nonblocking(true)?;
+    socket.bind(&multicast_addr.into())?;
+
+    // Convert `socket2::Socket` to `tokio::net::UdpSocket`
+    let udp_socket = UdpSocket::from_std(socket.into())?;
+
+    // Join multicast group.
+    match multicast_addr {
+        SocketAddr::V4(addr) => {
+            udp_socket.join_multicast_v4(*addr.ip(), Ipv4Addr::UNSPECIFIED)?;
+        }
+        SocketAddr::V6(addr) => {
+            udp_socket.join_multicast_v6(addr.ip(), 0)?;
+        }
+    }
+
+    Ok((udp_socket, multicast_addr))
 }

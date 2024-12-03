@@ -1,6 +1,6 @@
 pub mod modules {
-    pub mod protocol;
     pub mod networking;
+    pub mod protocol;
     // pub mod tui;
 }
 

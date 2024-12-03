@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bincode::{deserialize, serialize};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::error::Error;
+use std::net::AddrParseError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::UNIQUE_BYTES;
@@ -10,7 +10,8 @@ use crate::config::UNIQUE_BYTES;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum MessageContent {
     Text(String),
-    // TODO: add file exchange fields.
+    Empty(), // Added for now to supress warnings in tests.
+             // TODO: add file exchange fields.
 }
 
 /// Message wrapper for meta data.
@@ -31,9 +32,15 @@ pub struct UserDiscovery {
     pub user_id: u64,
 }
 
+/// Struct that is being is send once at the begining of connection.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConnectionInfo {
+    pub user_name: String,
+}
+
 impl UserDiscovery {
     // TODO: own serializer to avoid possiblity of error when serializing.
-    pub fn to_packet(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+    pub fn to_packet(&self) -> Result<Vec<u8>, StreamSerializerError> {
         let msg_data = serialize(self)?;
         let msg_len = (msg_data.len() as u64).to_be_bytes();
 
@@ -47,7 +54,7 @@ impl UserDiscovery {
         Ok(packet)
     }
 
-    pub fn from_packet(packet: Vec<u8>) -> Result<Self, Box<dyn Error>> {
+    pub fn from_packet(packet: Vec<u8>) -> Result<Self, StreamSerializerError> {
         if packet.len() < UNIQUE_BYTES.len() + 8 {
             return Err("Discovery packet too short!".into());
         }
@@ -60,7 +67,8 @@ impl UserDiscovery {
         }
 
         // Read length of UserDiscovery struct.
-        let msg_len = u64::from_be_bytes(packet[buff_idx..buff_idx + 8].try_into()?) as usize;
+        let msg_len =
+            u64::from_be_bytes(packet[buff_idx..buff_idx + 8].try_into().unwrap()) as usize;
 
         buff_idx += 8;
 
@@ -83,7 +91,7 @@ pub trait StreamSerialization: Serialize + DeserializeOwned {
     async fn send<S: AsyncWriteExt + Unpin + Send>(
         &self,
         stream: &mut S,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<(), StreamSerializerError> {
         let msg_data = serialize(self)?;
         let msg_len = (msg_data.len() as u64).to_be_bytes();
 
@@ -93,7 +101,9 @@ pub trait StreamSerialization: Serialize + DeserializeOwned {
         Ok(())
     }
 
-    async fn read<S: AsyncReadExt + Unpin + Send>(stream: &mut S) -> Result<Self, Box<dyn Error>> {
+    async fn read<S: AsyncReadExt + Unpin + Send>(
+        stream: &mut S,
+    ) -> Result<Self, StreamSerializerError> {
         let mut msg_len_buff: [u8; 8] = [0; 8];
         stream.read_exact(&mut msg_len_buff).await?;
         let msg_len = u64::from_be_bytes(msg_len_buff);
@@ -103,5 +113,41 @@ pub trait StreamSerialization: Serialize + DeserializeOwned {
         let msg = deserialize::<Self>(&msg_data_buff)?;
 
         Ok(msg)
+    }
+}
+
+#[derive(Debug)]
+pub enum StreamSerializerError {
+    Io(std::io::Error),
+    Bincode(bincode::Error),
+    StrError(String),
+    AddrParse(AddrParseError), // Variant for AddrParseError
+}
+
+// Implement `From` trait to automatically convert `std::io::Error` to `MyError`
+impl From<std::io::Error> for StreamSerializerError {
+    fn from(err: std::io::Error) -> Self {
+        StreamSerializerError::Io(err)
+    }
+}
+
+// Implement `From` trait to automatically convert `bincode::Error` to `MyError`
+impl From<bincode::Error> for StreamSerializerError {
+    fn from(err: bincode::Error) -> Self {
+        StreamSerializerError::Bincode(err)
+    }
+}
+
+// Implementing `From<&str>` for automatic conversion
+impl From<&str> for StreamSerializerError {
+    fn from(err: &str) -> Self {
+        StreamSerializerError::StrError(err.to_string())
+    }
+}
+
+// Implementing `From<AddrParseError>` for automatic conversion
+impl From<AddrParseError> for StreamSerializerError {
+    fn from(err: AddrParseError) -> Self {
+        StreamSerializerError::AddrParse(err)
     }
 }
