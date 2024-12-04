@@ -87,6 +87,7 @@ pub async fn search_for_users(
 
     socket.0.send_to(&invitation_packet, socket.1).await?;
 
+    // TODO: handle their JoinHandles.
     tokio::task::spawn(socket_listener(listener, connection_queue.clone()));
     tokio::task::spawn(detect_new_users(socket,  connection_queue.clone()));
     Ok(())
