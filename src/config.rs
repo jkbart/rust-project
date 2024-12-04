@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 lazy_static! {
     pub static ref MULTICAST_IP: &'static str = "239.42.17.19";
 }
-pub static MULTICAST_PORT: u16 = 7878;
+pub static MULTICAST_PORT: u16 = 7899;
 
 pub static UNIQUE_BYTES: &[u8] = b"CHATapp>4RxPOv@1Gy8SZ8syH7$MlVAA2>0y]D`%KTIN\"Y[Lk9Z}\"k{p)";
 

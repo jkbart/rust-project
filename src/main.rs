@@ -1,5 +1,4 @@
 use log::LevelFilter;
-
 use env_logger;
 use log::info;
 use rust_project::config::USER_NAME;
@@ -20,10 +19,10 @@ async fn main() {
     let rx_clone = rx.clone();
 
     tokio::task::spawn(async move {
-        match detect_new_users(rx_clone).await {
+        match search_for_users(rx_clone).await {
             Ok(()) => {}
             Err(e) => {
-                info!("socket_listener ended with error {:?}!", e);
+                info!("search_for_users ended with error {:?}!", e);
             }
         }
     });

@@ -46,16 +46,15 @@ async fn establish_connection(
         _ => (),
     }
 
-    info!("Sent connectionINfo");
+    info!("Sent connection Info");
 
     match time::timeout(Duration::from_secs(2), ConnectionInfo::read(&mut stream)).await {
         Ok(Ok(info)) => {
-            let _ = conn_queue
-                .send(ConnectionData {
-                    stream,
-                    peer_address: addr,
-                    peer_name: info.user_name,
-                });
+            let _ = conn_queue.send(ConnectionData {
+                stream,
+                peer_address: addr,
+                peer_name: info.user_name,
+            });
         }
         Ok(Err(e)) => {
             error!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
@@ -66,11 +65,13 @@ async fn establish_connection(
     }
 }
 
-/// Detects new tcp connections on port indefinitly and annouces user presence on MULTICAST.
-async fn socket_listener(
-    socket: Arc<(UdpSocket, SocketAddr)>,
+pub async fn search_for_users(
     connection_queue: mpsc::UnboundedSender<ConnectionData>,
 ) -> Result<(), StreamSerializerError> {
+    trace!("Binding multicast socket");
+    let socket = Arc::new(get_multicast_socket(&MULTICAST_IP, MULTICAST_PORT).await?);
+
+    trace!("Binding tcplistener socket");
     let listener = TcpListener::bind("0.0.0.0:0").await?; // Port to listen for
     let used_port = listener.local_addr()?.port();
 
@@ -86,8 +87,17 @@ async fn socket_listener(
 
     socket.0.send_to(&invitation_packet, socket.1).await?;
 
-    drop(socket);
+    tokio::task::spawn(socket_listener(listener, connection_queue.clone()));
+    tokio::task::spawn(detect_new_users(socket,  connection_queue.clone()));
+    Ok(())
+}
 
+
+/// Detects new tcp connections on port indefinitly and annouces user presence on MULTICAST.
+async fn socket_listener(
+    listener: TcpListener,
+    connection_queue: mpsc::UnboundedSender<ConnectionData>,
+) -> Result<(), StreamSerializerError> {
     loop {
         match listener.accept().await {
             Ok((socket, addr)) => {
@@ -101,28 +111,11 @@ async fn socket_listener(
     }
 }
 
-/// Detects new users on MULTICAST indefinitly.
-pub async fn detect_new_users(
+/// Detects new users on MULTICAST.
+async fn detect_new_users(
+    socket: Arc<(UdpSocket, SocketAddr)>,
     connection_queue: mpsc::UnboundedSender<ConnectionData>,
 ) -> Result<(), StreamSerializerError> {
-    let socket = Arc::new(get_multicast_socket(&MULTICAST_IP, MULTICAST_PORT).await?);
-
-    let connection_queue_clone = connection_queue.clone();
-    let socket_clone = socket.clone();
-
-    tokio::task::spawn(async move {
-        match socket_listener(socket_clone, connection_queue_clone).await {
-            Ok(()) => {
-                info!("socket_listener ended with success!");
-            }
-            Err(e) => {
-                error!("socket_listener ended with error {:?}!", e);
-            }
-        }
-    });
-
-    trace!("Begining to listen on multicast!");
-
     loop {
         let mut buf = vec![0; 4096];
         let (len, mut addr) = socket.0.recv_from(&mut buf).await?;
