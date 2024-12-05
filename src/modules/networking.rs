@@ -168,16 +168,7 @@ pub async fn get_multicast_socket(
     socket.set_reuse_address(true)?;
     socket.set_nonblocking(true)?;
 
-    #[cfg(target_os = "windows")]
-    {
-        socket.bind(&format!("0.0.0.0:{mc_port}").parse::<SocketAddr>()?.into())?;
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // Linux: Bind to the multicast address
-        socket.bind(&multicast_addr.into())?;
-    }
+    socket.bind(&format!("0.0.0.0:{mc_port}").parse::<SocketAddr>()?.into())?;
 
     // Convert `socket2::Socket` to `tokio::net::UdpSocket`
     let udp_socket = UdpSocket::from_std(socket.into())?;
