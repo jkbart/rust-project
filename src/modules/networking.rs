@@ -89,10 +89,9 @@ pub async fn search_for_users(
 
     // TODO: handle their JoinHandles.
     tokio::task::spawn(socket_listener(listener, connection_queue.clone()));
-    tokio::task::spawn(detect_new_users(socket,  connection_queue.clone()));
+    tokio::task::spawn(detect_new_users(socket, connection_queue.clone()));
     Ok(())
 }
-
 
 /// Detects new tcp connections on port indefinitly and annouces user presence on MULTICAST.
 async fn socket_listener(
