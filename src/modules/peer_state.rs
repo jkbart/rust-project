@@ -1,6 +1,19 @@
+use ratatui::text::Span;
+use ratatui::widgets::Paragraph;
+use ratatui::layout::Rect;
+use ratatui::widgets::Borders;
+use ratatui::widgets::StatefulWidget;
+use ratatui::widgets::Widget;
+use ratatui::widgets::List;
+use ratatui::prelude::Stylize;
+use ratatui::widgets::ListItem;
+use ratatui::text::Line;
+use ratatui::{buffer::Buffer, widgets::{Block, ListState}};
+
+use std::ops::Deref;
+
 use super::{networking::*, protocol::*};
 use rand::RngCore;
-use ratatui::widgets::ListState;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
@@ -17,18 +30,12 @@ pub struct PeerState {
     pub name: String,
     pub addr: SocketAddr,
     pub conversation: Vec<MessageContext>,
+    conversation_state: ListState,
     pub next_message: Message,
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
     message_writer_queue: mpsc::UnboundedSender<Message>,
     message_writer_handle: JoinHandle<Result<(), StreamSerializerError>>,
     message_reader_handle: JoinHandle<Result<(), StreamSerializerError>>,
-}
-
-pub struct PeerList {
-    pub peer_list: Vec<PeerState>,
-    pub state: ListState,
-    peer_buffer: Arc<Mutex<Vec<PeerState>>>,
-    peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
 }
 
 impl PeerState {
@@ -39,6 +46,8 @@ impl PeerState {
     pub fn update(&mut self) {
         let mut msg_buffer = self.conversation_buffer.lock().unwrap();
         self.conversation.append(&mut msg_buffer);
+        self.conversation_state.select(Some(self.conversation.len()));
+        info!("{:?}", self.conversation_state);
     }
 
     pub fn send(&mut self, msg: Message) {
@@ -74,6 +83,7 @@ impl From<ConnectionData> for PeerState {
             name: connection_data.peer_name,
             addr: connection_data.peer_address,
             conversation: Vec::new(),
+            conversation_state: ListState::default(),
             next_message: Message {
                 content: MessageContent::Text(String::new()),
                 msg_id: rand::thread_rng().next_u64(),
@@ -124,72 +134,54 @@ async fn message_writer(
     }
 }
 
-impl PeerList {
-    pub fn new() -> Self {
-        let peer_buffer: Arc<Mutex<Vec<PeerState>>> = Arc::new(Mutex::new(Vec::new()));
+impl PeerState {
+    pub fn render_conv(&mut self, block: &mut Rect, buf: &mut Buffer) {
+        let msg_items: Vec<ListItem> = self
+            .conversation
+            .iter()
+            .map(|msg| {
+                match &msg.message.content {
+                    MessageContent::Text(txt) =>
+                        ListItem::from(Line::from(vec![
+                            (txt.deref()).bold(),
+                        ])),
+                    MessageContent::Empty() => ListItem::from(Line::from(vec![
+                            "empty msg".bold(),
+                        ]))
+                }
+            })
+            .collect();
 
-        let (tx_peer_list, rx_peer_list) = mpsc::unbounded_channel::<ConnectionData>();
-        tokio::task::spawn(search_for_users(tx_peer_list));
-
-        let peer_updator = tokio::task::spawn(peer_list_updator(peer_buffer.clone(), rx_peer_list));
-
-        PeerList {
-            peer_list: Vec::new(),
-            state: ListState::default(),
-            peer_buffer,
-            peer_updator,
-        }
+        let msg_list = List::new(msg_items)
+            .block(Block::default()
+                .borders(Borders::ALL)
+                .title(format!("Conversation with {}:", &self.name)));
+        StatefulWidget::render(msg_list, *block, buf, &mut self.conversation_state);
     }
 
-    pub fn update(&mut self) {
-        let mut peer_buffer = self.peer_buffer.lock().unwrap();
-        self.peer_list.append(&mut peer_buffer);
-        if self.state.selected().is_none() && self.peer_list.len() > 1 {
-            self.state.select(Some(0));
-        }
+    pub fn render_edit(&mut self, block: &mut Rect, buf: &mut Buffer) {
+
+        let text: &str = match &self.next_message.content {
+            MessageContent::Text(txt) => &txt,
+            MessageContent::Empty() => "",
+        };
+
+        let paragraph = Paragraph::new(
+            Span::raw(text),
+        )
+        .block(
+            Block::default()
+                .title("Text Viewer")
+                .borders(Borders::ALL),
+        );
+
+        Widget::render(paragraph, *block, buf);
     }
 
-    pub fn select_next(&mut self) {
-        if let Some(idx) = self.state.selected() {
-            self.state.select(Some((idx + 1) % self.peer_list.len()));
-        }
-    }
-
-    pub fn select_previous(&mut self) {
-        if let Some(idx) = self.state.selected() {
-            self.state.select(Some(
-                (idx - 1 + self.peer_list.len()) % self.peer_list.len(),
-            ));
-        }
-    }
-
-    pub fn get_selected(&mut self) -> Option<&mut PeerState> {
-        self.state.selected().map(|idx| &mut self.peer_list[idx])
-    }
-}
-
-impl<'a> IntoIterator for &'a PeerList {
-    type Item = &'a PeerState; // Borrows the items
-    type IntoIter = std::slice::Iter<'a, PeerState>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.peer_list.iter()
-    }
-}
-
-pub async fn peer_list_updator(
-    peers: Arc<Mutex<Vec<PeerState>>>,
-    mut peer_queue: mpsc::UnboundedReceiver<ConnectionData>,
-) -> Result<(), StreamSerializerError> {
-    loop {
-        match peer_queue.recv().await {
-            Some(connection_data) => {
-                info!("New user detected!");
-                peers.lock().unwrap().push(connection_data.into());
-            }
-            None => {
-                break Ok(());
-            }
-        }
+    pub fn render_empty(block: &mut Rect, buf: &mut Buffer) {
+        let block2 = Block::default()
+            .title("No conversation picked!")
+            .borders(ratatui::widgets::Borders::ALL);
+        Widget::render(block2, *block, buf);
     }
 }

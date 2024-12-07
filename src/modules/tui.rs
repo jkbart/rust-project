@@ -1,21 +1,15 @@
-use ratatui::widgets::Block;
-use ratatui::widgets::Borders;
-use ratatui::widgets::Paragraph;
 use rand::RngCore;
 use crate::modules::event_handler;
 
-use super::{app_state::*, protocol::*, event_handler::*};
-use std::ops::Deref;
+use super::peer_state::PeerState;
+use super::{peer_list::*, protocol::*, event_handler::*};
 
 use ratatui::{
-    prelude::*,
     buffer::Buffer,
     backend::{Backend, CrosstermBackend},
     crossterm::event::{KeyCode},
-    text::Line,
     layout::{Constraint, Layout, Rect},   
     widgets::{
-        List, ListItem, ListState,
         StatefulWidget, Widget,
     },
     Terminal,
@@ -133,59 +127,25 @@ impl App {
 
 impl Widget for &mut App {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let [peers_block, msg_block] = Layout::horizontal([
-            Constraint::Min(10),
-            Constraint::Min(10),
+        let [mut peers_block, mut msg_block] = Layout::horizontal([
+            Constraint::Percentage(30),
+            Constraint::Percentage(70),
         ])
         .areas(area);
 
-        {
-            let peer_items: Vec<ListItem> = self
-                .peers
-                .peer_list
-                .iter()
-                .map(|peer| {
-                    ListItem::from(Line::from(vec![
-                        (*peer.name).bold(),
-                    ]))
-                })
-                .collect();
+        self.peers.render(&mut peers_block, buf);
 
+        if let Some(peer) = self.peers.get_selected() {
+            let [mut conv_block, mut edit_block] = Layout::vertical([
+                Constraint::Percentage(80),
+                Constraint::Percentage(20),
+            ])
+            .areas(msg_block);
 
-            if !peer_items.is_empty() {
-                let peer_list = List::new(peer_items)
-                    .block(Block::default()
-                        .borders(Borders::ALL)
-                        .title("Peers:"));
-                StatefulWidget::render(peer_list, peers_block, buf, &mut self.peers.state);
-            } else {
-                let block = Block::default()
-                    .title("No users detected!")
-                    .borders(ratatui::widgets::Borders::ALL);
-                Widget::render(block, peers_block, buf);
-            }
-        }
-        {
-            if let Some(peer) = self.peers.get_selected() {
-                let msg_items: Vec<ListItem> = peer
-                    .conversation
-                    .iter()
-                    .map(|msg| {
-                        match &msg.message.content {
-                            MessageContent::Text(txt) =>
-                                ListItem::from(Line::from(vec![
-                                    (txt.deref()).bold(),
-                                ])),
-                            MessageContent::Empty() => ListItem::from(Line::from(vec![
-                                    "empty msg".bold(),
-                                ]))
-                        }
-                    })
-                    .collect();
-
-                let msg_list = List::new(msg_items);
-                StatefulWidget::render(msg_list, msg_block, buf, &mut ListState::default());
-            }
+            peer.render_conv(&mut conv_block, buf);
+            peer.render_edit(&mut edit_block, buf);
+        } else {
+            PeerState::render_empty(&mut msg_block, buf);
         }
     }
 }
