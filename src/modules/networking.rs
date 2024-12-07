@@ -1,4 +1,4 @@
-use log::*;
+use cli_log::*;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
