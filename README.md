@@ -9,10 +9,10 @@ This project is implemented as part of the Rust course at the University of Wars
 ## Roadmap
 
 ### Iteration 1 (*2024-12-12*)
-- [ ] **Terminal UI**: Design a user-friendly command-line interface.
-- [ ] **Device Discovery**: Detect available devices on the local network.
-- [ ] **TCP Connection**: Establish TCP connections with detected devices.
-- [ ] **Messaging**: Allow users to send messages to other connected users.
+- [x] **Terminal UI**: Design a user-friendly command-line interface.
+- [x] **Device Discovery**: Detect available devices on the local network.
+- [x] **TCP Connection**: Establish TCP connections with detected devices.
+- [x] **Messaging**: Allow users to send messages to other connected users.
 
 ### Iteration 2 (*2025-01-09*)
 - [ ] **File Transfer**: Enable file transfers between devices.
