@@ -171,9 +171,9 @@ impl PeerState {
         let msg_items: Vec<ListItem> = self
             .conversation
             .iter()
-            .map(|msg| { 
+            .map(|msg| {
                 let line = match &msg.message.content {
-                    MessageContent::Text(txt) => {Line::from(vec![(txt.deref()).bold()])},
+                    MessageContent::Text(txt) => Line::from(vec![(txt.deref()).bold()]),
                     MessageContent::Empty() => Line::from(vec!["empty msg".bold()]),
                 };
                 if msg.was_received {

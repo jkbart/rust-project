@@ -12,6 +12,7 @@ use rust_project::modules::tui;
 use std::error::Error;
 use std::io;
 
+#[warn(unused_extern_crates)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     init_cli_log!();
