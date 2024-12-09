@@ -26,6 +26,7 @@ async fn establish_connection(
     addr: SocketAddr,
     conn_queue: mpsc::UnboundedSender<ConnectionData>,
 ) {
+    // Send our initial msg.
     match time::timeout(
         Duration::from_secs(2),
         (ConnectionInfo {
@@ -36,18 +37,19 @@ async fn establish_connection(
     .await
     {
         Ok(Err(e)) => {
-            info!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
+            info!("Couldn't establish connection: {:?}", e);
             return;
         }
         Err(e) => {
-            error!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
+            error!("Couldn't establish connection: {:?}", e);
             return;
         }
         _ => (),
     }
 
-    info!("Sent connection Info");
+    info!("Sent connection info to {}", addr);
 
+    // Wait for incoming initial msg.
     match time::timeout(Duration::from_secs(2), ConnectionInfo::read(&mut stream)).await {
         Ok(Ok(info)) => {
             let _ = conn_queue.send(ConnectionData {
@@ -57,10 +59,10 @@ async fn establish_connection(
             });
         }
         Ok(Err(e)) => {
-            error!("Couldn't establish connection: {:?}", e); // Ensure e is boxed with Send if necessary
+            error!("Couldn't establish connection: {:?}", e);
         }
         Err(e) => {
-            error!("Timed out during connection establishment: {:?}", e); // Ensure e is boxed with Send if necessary
+            error!("Timed out during connection establishment: {:?}", e);
         }
     }
 }
@@ -69,7 +71,7 @@ pub async fn search_for_users(
     connection_queue: mpsc::UnboundedSender<ConnectionData>,
 ) -> Result<(), StreamSerializerError> {
     trace!("Binding multicast socket");
-    let socket = Arc::new(get_multicast_socket(&MULTICAST_IP, MULTICAST_PORT).await?);
+    let socket = Arc::new(get_multicast_socket(MULTICAST_IP, MULTICAST_PORT).await?);
 
     trace!("Binding tcplistener socket");
     let listener = TcpListener::bind("0.0.0.0:0").await?; // Port to listen for
@@ -97,7 +99,7 @@ pub async fn search_for_users(
 async fn socket_listener(
     listener: TcpListener,
     connection_queue: mpsc::UnboundedSender<ConnectionData>,
-) -> Result<(), StreamSerializerError> {
+) -> Result<(), std::io::Error> {
     loop {
         match listener.accept().await {
             Ok((socket, addr)) => {
@@ -105,7 +107,7 @@ async fn socket_listener(
                 tokio::task::spawn(establish_connection(socket, addr, connection_queue.clone()));
             }
             Err(e) => {
-                return Err(StreamSerializerError::Io(e));
+                return Err(e);
             }
         }
     }
@@ -115,7 +117,7 @@ async fn socket_listener(
 async fn detect_new_users(
     socket: Arc<(UdpSocket, SocketAddr)>,
     connection_queue: mpsc::UnboundedSender<ConnectionData>,
-) -> Result<(), StreamSerializerError> {
+) -> Result<(), std::io::Error> {
     loop {
         let mut buf = vec![0; 4096];
         let (len, mut addr) = socket.0.recv_from(&mut buf).await?;
@@ -167,7 +169,7 @@ pub async fn get_multicast_socket(
     socket.set_reuse_address(true)?;
     socket.set_nonblocking(true)?;
 
-    socket.bind(&format!("0.0.0.0:{mc_port}").parse::<SocketAddr>()?.into())?;
+    socket.bind(&std::net::SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, mc_port).into())?;
 
     // Convert `socket2::Socket` to `tokio::net::UdpSocket`
     let udp_socket = UdpSocket::from_std(socket.into())?;

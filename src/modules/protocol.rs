@@ -36,10 +36,11 @@ pub struct UserDiscovery {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConnectionInfo {
     pub user_name: String,
+    // Add id, currently under some conditions, user can have auto 2 conversations with same person.
 }
 
 impl UserDiscovery {
-    // TODO: own serializer to avoid possiblity of error when serializing.
+    // Packet format: UNIQUE_BYTES, 8 bytes of msg len, msg
     pub fn to_packet(&self) -> Result<Vec<u8>, StreamSerializerError> {
         let msg_data = serialize(self)?;
         let msg_len = (msg_data.len() as u64).to_be_bytes();
@@ -68,7 +69,7 @@ impl UserDiscovery {
 
         // Read length of UserDiscovery struct.
         let msg_len =
-            u64::from_be_bytes(packet[buff_idx..buff_idx + 8].try_into().unwrap()) as usize;
+            u64::from_be_bytes(packet[buff_idx..buff_idx + 8].try_into().unwrap()) as usize; // This unwrap will never fail.
 
         buff_idx += 8;
 
@@ -121,17 +122,17 @@ pub enum StreamSerializerError {
     Io(std::io::Error),
     Bincode(bincode::Error),
     StrError(String),
-    AddrParse(AddrParseError), // Variant for AddrParseError
+    AddrParse(AddrParseError), // Possible only when parsing multicast addr. Left here for convinience.
 }
 
-// Implement `From` trait to automatically convert `std::io::Error` to `MyError`
+// Implement `From` trait to automatically convert `std::io::Error` to `StreamSerializerError`
 impl From<std::io::Error> for StreamSerializerError {
     fn from(err: std::io::Error) -> Self {
         StreamSerializerError::Io(err)
     }
 }
 
-// Implement `From` trait to automatically convert `bincode::Error` to `MyError`
+// Implement `From` trait to automatically convert `bincode::Error` to `StreamSerializerError`
 impl From<bincode::Error> for StreamSerializerError {
     fn from(err: bincode::Error) -> Self {
         StreamSerializerError::Bincode(err)

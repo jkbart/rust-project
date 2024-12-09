@@ -1,20 +1,24 @@
+use crossterm::event::KeyCode;
+use ratatui::layout::Rect;
+use ratatui::prelude::Stylize;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::style::Style;
-use ratatui::widgets::StatefulWidget;
-use ratatui::layout::Rect;
-use ratatui::widgets::Borders;
-use ratatui::widgets::Widget;
-use ratatui::widgets::List;
-use ratatui::prelude::Stylize;
-use ratatui::widgets::ListItem;
 use ratatui::text::Line;
-use ratatui::{buffer::Buffer, widgets::{Block, ListState}};
+use ratatui::widgets::Borders;
+use ratatui::widgets::List;
+use ratatui::widgets::ListItem;
+use ratatui::widgets::StatefulWidget;
+use ratatui::widgets::Widget;
+use ratatui::{
+    buffer::Buffer,
+    widgets::{Block, ListState},
+};
 
 use super::{networking::*, protocol::*};
+use cli_log::*;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
-use cli_log::*;
 
 use tokio::sync::mpsc;
 
@@ -24,7 +28,7 @@ pub struct PeerList {
     pub peer_list: Vec<PeerState>,
     pub state: ListState,
     peer_buffer: Arc<Mutex<Vec<PeerState>>>,
-    peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
+    _peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
 }
 
 impl PeerList {
@@ -40,7 +44,7 @@ impl PeerList {
             peer_list: Vec::new(),
             state: ListState::default(),
             peer_buffer,
-            peer_updator,
+            _peer_updator: peer_updator,
         }
     }
 
@@ -70,31 +74,44 @@ impl PeerList {
         self.state.selected().map(|idx| &mut self.peer_list[idx])
     }
 
-    pub fn render(&mut self, block: &mut Rect, buf: &mut Buffer) {
+    pub fn handle_event(&mut self, keycode: &KeyCode) {
+        match &keycode {
+            KeyCode::Up => {
+                self.select_previous();
+            }
+            KeyCode::Down => {
+                self.select_next();
+            }
+            _ => {}
+        }
+    }
+
+    pub fn render(&mut self, block: &mut Rect, buf: &mut Buffer, is_active: bool) {
         let peer_items: Vec<ListItem> = self
             .peer_list
             .iter()
             .enumerate()
             .map(|(idx, peer)| {
                 if self.state.selected() != Some(idx) {
-                    ListItem::from(Line::from(vec![
-                        (*peer.name).bold(),
-                    ]))
+                    ListItem::from(Line::from(vec![(*peer.name).bold()]))
                 } else {
-                    ListItem::from(Line::from(vec![
-                        (*peer.name).bold(),
-                    ])).bg(Color::DarkGray)
+                    ListItem::from(Line::from(vec![(*peer.name).bold()])).bg(Color::DarkGray)
                 }
             })
             .collect();
 
-
         if !peer_items.is_empty() {
-            let peer_list = List::new(peer_items)
-                .block(Block::default()
+            let peer_list = List::new(peer_items).block(
+                Block::default()
                     .borders(Borders::ALL)
                     .title("Peers:")
-                    .border_style(Style::default().add_modifier(Modifier::BOLD)));
+                    .border_style(Style::default().add_modifier(Modifier::BOLD))
+                    .border_style(if is_active {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default()
+                    }),
+            );
             StatefulWidget::render(peer_list, *block, buf, &mut self.state);
         } else {
             let block2 = Block::default()
