@@ -122,15 +122,6 @@ impl PeerList {
     }
 }
 
-impl<'a> IntoIterator for &'a PeerList {
-    type Item = &'a PeerState; // Borrows the items
-    type IntoIter = std::slice::Iter<'a, PeerState>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.peer_list.iter()
-    }
-}
-
 pub async fn peer_list_updator(
     peers: Arc<Mutex<Vec<PeerState>>>,
     mut peer_queue: mpsc::UnboundedReceiver<ConnectionData>,
