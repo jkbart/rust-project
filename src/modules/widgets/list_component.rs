@@ -1,8 +1,14 @@
+use cli_log::*;
 use std::collections::VecDeque;
 
 use ratatui::text::Line;
 use ratatui::prelude::Rect;
 use ratatui::prelude::Buffer;
+
+pub enum RenderingTop {
+    Top,
+    Bottom,
+}
 
 pub struct ListCache {
     cache: Vec<Line<'static>>,
@@ -47,15 +53,28 @@ pub trait ListItem {
         }
     }
 
-    fn render(&mut self, rect: Rect, buff: &mut Buffer, selected: bool) {
+    fn render(&mut self, rect: Rect, buff: &mut Buffer, selected: bool, top: RenderingTop) {
         self.set_cache(rect.width, selected);
 
-        for (idx, line) in self.get_cache().as_ref().unwrap().cache.iter().enumerate() {
-            if idx as u16 >= rect.height {
-                break;
-            }
+        match top {
+            RenderingTop::Top => {
+                for (idx, line) in self.get_cache().as_ref().unwrap().cache.iter().rev().enumerate() {
+                    if idx as u16 >= rect.height {
+                        break;
+                    }
 
-            buff.set_line(rect.x, rect.y + idx as u16, line, rect.width);
+                    buff.set_line(rect.x, rect.y + rect.height - 1 - idx as u16, line, rect.width);
+                }
+            },
+            RenderingTop::Bottom => {
+                for (idx, line) in self.get_cache().as_ref().unwrap().cache.iter().enumerate() {
+                    if idx as u16 >= rect.height {
+                        break;
+                    }
+
+                    buff.set_line(rect.x, rect.y + idx as u16, line, rect.width);
+                }
+            }
         }
     }
 }
@@ -74,7 +93,7 @@ struct Scroll {
     begining: ListBegin,
     top: ListTop,
     selected_msg: Option<u16>,
-    last_selected: Option<u16>,     // Simpler offset, makes scrolling easier.
+    top_visisted: Option<(u16, u16)>,     // Simpler offset, makes implementing scrolling easier.
 }
 
 pub struct ListComponent<Item: ListItem> {
@@ -90,7 +109,7 @@ impl<Item: ListItem> ListComponent<Item> {
                 begining: scroll_begin,
                 top: list_top,
                 selected_msg: None,
-                last_selected: None,
+                top_visisted: None,
             },
         }
     }
@@ -107,7 +126,7 @@ impl<Item: ListItem> ListComponent<Item> {
         let Some(selected_msg) = &mut self.scroll.selected_msg else {
             if !self.list.is_empty() {
                 self.scroll.selected_msg = Some(self.get_top_idx());
-                self.scroll.last_selected = Some(self.get_top_idx());
+                self.scroll.top_visisted = Some((self.get_top_idx(), 0));
 
                 return true;
             }
@@ -116,6 +135,9 @@ impl<Item: ListItem> ListComponent<Item> {
         };
 
         if self.list.len() > (*selected_msg + 1).into() {
+            if *selected_msg == self.scroll.top_visisted.unwrap().0 {
+                self.scroll.top_visisted = Some((*selected_msg + 1, 0));
+            }
             *selected_msg += 1;
             return true;
         }
@@ -139,11 +161,12 @@ impl<Item: ListItem> ListComponent<Item> {
 
     pub fn reset(&mut self) {
         self.scroll.selected_msg = None;
-        self.scroll.last_selected = None;
+        self.scroll.top_visisted = None;
     }
 
     pub fn select(&mut self, idx: u16) {
         self.scroll.selected_msg = Some(idx.max(self.list.len() as u16 - 1));
+        self.scroll.top_visisted = Some((idx.max(self.list.len() as u16 - 1), 0));
     }
 
     pub fn get_select_idx(&mut self) -> Option<u16> {
@@ -167,18 +190,32 @@ impl<Item: ListItem> ListComponent<Item> {
 
         let mut items: VecDeque<(u16, u16)> = VecDeque::new();  // Index of item, number of lines rendered
 
-        match (self.scroll.selected_msg, self.scroll.last_selected) {
-            (Some(selected_msg), Some(last_selected)) => {
-                if selected_msg > last_selected {
-                    for i in (last_selected..=selected_msg).rev() {
+        // Calculating offset of list item rendering. Could be improved.
+        match (self.scroll.selected_msg, self.scroll.top_visisted) {
+            (Some(selected_msg), Some(top_visisted)) => {
+                trace!("sel:{} top:{:?}", selected_msg, top_visisted);
+                if selected_msg > top_visisted.0 {
+                    for i in (top_visisted.0..=selected_msg).rev() {
                         if height_sum == rect.height {
                             break;
                         }
 
                         self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                        let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
+                        let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
+                        let used_lines = match i {
+                            x if x == top_visisted.0 && x != selected_msg => {
+                                lines_cnt
+                                    .min(lines_cnt.max(top_visisted.1) - top_visisted.1)
+                                    .min(rect.height - height_sum)
+                            }
+                            _ => {
+                                lines_cnt.min(rect.height - height_sum)
+                            }
+                        };
+
                         height_sum += used_lines;
                         items.push_front((i, used_lines));
+                        self.scroll.top_visisted = Some((i, lines_cnt - used_lines));
                     }
 
                     for i in selected_msg + 1..self.list.len() as u16 {
@@ -192,61 +229,99 @@ impl<Item: ListItem> ListComponent<Item> {
                         items.push_back((i, used_lines));
                     }
 
-                    for i in (0..=last_selected - 1).rev() {
-                        if height_sum == rect.height {
-                            break;
-                        }
+                    if top_visisted.0 > 0 {
+                        for i in (0..=top_visisted.0 - 1).rev() {
+                            if height_sum == rect.height {
+                                break;
+                            }
 
-                        self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                        let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
-                        height_sum += used_lines;
-                        items.push_front((i, used_lines));
+                            self.list[i as usize].set_cache(rect.width, i == selected_msg);
+                            let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
+                            let used_lines = lines_cnt.min(rect.height - height_sum);
+                            height_sum += used_lines;
+                            items.push_front((i, used_lines));
+
+                            self.scroll.top_visisted = Some((i, lines_cnt - used_lines));
+                        }
                     }
                 } else {
-                    for i in selected_msg..=last_selected {
+                    for i in selected_msg..=top_visisted.0 {
                         if height_sum == rect.height {
                             break;
                         }
 
                         self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                        let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
-                        height_sum += used_lines;
-                        items.push_front((i, used_lines));
-                    }
+                        let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
+                        let used_lines = match i {
+                            x if x == top_visisted.0 && x != selected_msg => {
+                                lines_cnt
+                                    .min(lines_cnt.max(top_visisted.1) - top_visisted.1)
+                                    .min(rect.height - height_sum)
+                            }
+                            _ => {
+                                lines_cnt.min(rect.height - height_sum)
+                            }
+                        };
 
-                    for i in (0..=last_selected - 1).rev() {
-                        if height_sum == rect.height {
-                            break;
-                        }
-
-                        self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                        let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
-                        height_sum += used_lines;
-                        items.push_front((i, used_lines));
-                    }
-
-                    for i in selected_msg + 1..self.list.len() as u16 {
-                        if height_sum == rect.height {
-                            break;
-                        }
-
-                        self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                        let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
                         height_sum += used_lines;
                         items.push_back((i, used_lines));
+                        self.scroll.top_visisted = Some((i, lines_cnt - used_lines));
+                    }
+
+                    if selected_msg > 0 {
+                        for i in (0..=selected_msg - 1).rev() {
+                            if height_sum == rect.height {
+                                break;
+                            }
+
+                            self.list[i as usize].set_cache(rect.width, i == selected_msg);
+                            let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
+                            height_sum += used_lines;
+                            items.push_front((i, used_lines));
+                        }
+                    }
+
+                    for i in top_visisted.0 + 1..self.list.len() as u16 {
+                        if height_sum == rect.height {
+                            break;
+                        }
+
+                        self.list[i as usize].set_cache(rect.width, i == selected_msg);
+                        let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
+                        let used_lines = lines_cnt.min(rect.height - height_sum);
+                        height_sum += used_lines;
+                        items.push_back((i, used_lines));
+                        
+                        self.scroll.top_visisted = Some((i, lines_cnt - used_lines));
                     }
                 }
             }
             _ => {
-                for i in 0..self.list.len() as u16 {
-                    if height_sum == rect.height {
-                        break;
-                    }
+                match self.scroll.top {
+                    ListTop::First => {
+                        for i in 0..self.list.len() as u16 {
+                            if height_sum == rect.height {
+                                break;
+                            }
 
-                    self.list[i as usize].set_cache(rect.width, false);
-                    let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
-                    height_sum += used_lines;
-                    items.push_back((i, used_lines));
+                            self.list[i as usize].set_cache(rect.width, false);
+                            let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
+                            height_sum += used_lines;
+                            items.push_back((i, used_lines));
+                        }
+                    }
+                    ListTop::Last => {
+                        for i in (0..self.list.len() as u16).rev() {
+                            if height_sum == rect.height {
+                                break;
+                            }
+
+                            self.list[i as usize].set_cache(rect.width, false);
+                            let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
+                            height_sum += used_lines;
+                            items.push_front((i, used_lines));
+                        }
+                    }
                 }
             }
         }
@@ -260,13 +335,17 @@ impl<Item: ListItem> ListComponent<Item> {
 
         match self.scroll.begining {
             ListBegin::Top => {
+                let mut direction = RenderingTop::Top;
+
                 for item in items_iterator {
                     self.list[item.0 as usize].render(
                         Rect::new(rect.x, rect.y + height_sum, rect.width, item.1),
                         buff,
-                        self.scroll.selected_msg.is_some_and(|idx| idx == item.0)
+                        self.scroll.selected_msg.is_some_and(|idx| idx == item.0),
+                        direction,
                     );
                     height_sum += item.1;
+                    direction = RenderingTop::Bottom;
                 }
 
                 for height in height_sum..rect.height {
@@ -274,13 +353,17 @@ impl<Item: ListItem> ListComponent<Item> {
                 }
             },
             ListBegin::Bottom => {
+                let mut direction = RenderingTop::Bottom;
+
                 for item in items_iterator {
                     self.list[item.0 as usize].render(
                         Rect::new(rect.x, rect.y + rect.height - height_sum - item.1, rect.width, item.1),
                         buff,
-                        self.scroll.selected_msg.is_some_and(|idx| idx == item.0)
+                        self.scroll.selected_msg.is_some_and(|idx| idx == item.0),
+                        direction,
                     );
                     height_sum += item.1;
+                    direction = RenderingTop::Top;
                 }
 
                 for height in height_sum..rect.height {

@@ -47,19 +47,35 @@ impl ListItem for MsgBubble {
         };
 
         let name_length = UnicodeWidthStr::width(self.sender.as_str()).min(window_max_width as usize - 2);
+
+        let mut bubble_width = (name_length + 2).min(window_max_width as usize);
+
+        let mut middle_lines = bubble_content(&self.message.content, window_max_width, &mut bubble_width); // Needs to be called before top_name calculations.
+
+        let mut raw_lines = Vec::<String>::new();
+
         let top_name: String =  match self.allignment {
-            MsgBubbleAllignment::Left  => format!("{:─<width$}", &self.sender[..name_length], width = window_max_width as usize - 2),
-            MsgBubbleAllignment::Right => format!("{:─>width$}", &self.sender[..name_length], width = window_max_width as usize - 2),
+            MsgBubbleAllignment::Left  => format!("{:─<width$}", &self.sender[..name_length], width = bubble_width as usize - 2),
+            MsgBubbleAllignment::Right => format!("{:─>width$}", &self.sender[..name_length], width = bubble_width as usize - 2),
         };
 
-        let top_bar    = "┌".to_string() + &top_name +                                  "┐";         
-        let bottom_bar = "└".to_string() + &"─".repeat(window_max_width as usize - 2) + "┘";
+        raw_lines.push("┌".to_string() + &top_name +                              "┐");
+        raw_lines.append(&mut middle_lines);
+        raw_lines.push("└".to_string() + &"─".repeat(bubble_width as usize - 2) + "┘");
 
-        let mut rendered_msg: Vec<Line> = vec![Line::from(Span::styled(top_bar, style))];
-
-        rendered_msg.append(&mut bubble_content(&self.message.content, &style, window_max_width));
-
-        rendered_msg.push(Line::from(Span::styled(bottom_bar, style)));
+        let rendered_msg: Vec<Line> = raw_lines.into_iter().map(|line| {
+            Line::from(Span::styled(
+                match self.allignment {
+                    MsgBubbleAllignment::Left => {
+                        line + &" ".repeat(window_max_width as usize - bubble_width)
+                    }
+                    MsgBubbleAllignment::Right => {
+                        " ".repeat(window_max_width as usize - bubble_width) + &line
+                    }
+                },
+                style,
+            ))
+        }).collect();
 
         let height = rendered_msg.len() as u16;
 
@@ -72,18 +88,30 @@ impl ListItem for MsgBubble {
     }
 }
 
-fn bubble_content(content: & MessageContent, style: &Style, window_max_width: u16) -> Vec<Line<'static>> {
+fn bubble_content(
+    content: & MessageContent,
+    window_max_width: u16,
+    bubble_width: &mut usize
+) -> Vec<String> {
     match &content {
         MessageContent::Text(text) => {
-            textwrap::wrap_columns(text, 1, window_max_width as usize, "│", "*unused*", "│")    // *unused* because for only 1 column this argument is not needed.
+            let mut lines = textwrap::wrap(text, window_max_width as usize - 2);
+            if lines.is_empty() {
+                lines.push(std::borrow::Cow::Borrowed(" "));
+            }
+
+            let max_line_width = lines.iter().map(|line| UnicodeWidthStr::width(line.as_ref()) as u16).max().unwrap().max(*bubble_width as u16 - 2);
+            *bubble_width = max_line_width as usize + 2;
+
+            lines
                 .into_iter()
                 .map(|line| {
-                    Line::from(Span::styled(line, *style))
+                        "│".to_string() + &line + &" ".repeat(*bubble_width as usize - 2 - UnicodeWidthStr::width(line.as_ref())) + "│"
                 })
                 .collect()
         },
         MessageContent::Empty() => {
-            vec![Line::from(Span::styled("│".to_string() + &"#".repeat(window_max_width as usize - 2) + "│", *style))]
+            vec!["│".to_string() + &"#".repeat(window_max_width as usize - 2) + "│"]
         }
     }
 }

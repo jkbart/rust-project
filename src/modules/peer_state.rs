@@ -54,7 +54,10 @@ impl PeerState {
         let mut msg_buffer = self.conversation_buffer.lock().unwrap();
         self.messages.list.extend(msg_buffer.drain(..).map(|mc| {
             MsgBubble::new(
-                self.name.clone(),
+                match mc.was_received {
+                    true => self.name.clone(),
+                    false => "You".to_string(),
+                },
                 mc.message,
                 match mc.was_received {
                     true => MsgBubbleAllignment::Left,
