@@ -27,7 +27,7 @@ impl ListCache {
     }
 }
 
-pub trait ListComponent {
+pub trait ListItem {
     fn get_cache(&mut self) -> &mut Option<ListCache>;
     fn prerender(&mut self, window_max_width: u16, selected: bool);
 
@@ -77,12 +77,12 @@ struct Scroll {
     last_selected: Option<u16>,     // Simpler offset, makes scrolling easier.
 }
 
-pub struct List<Item: ListComponent> {
+pub struct ListComponent<Item: ListItem> {
     pub list: Vec<Item>,        // Assuming this vector is only appended.
     scroll: Scroll,
 }
 
-impl<Item: ListComponent> List<Item> {
+impl<Item: ListItem> ListComponent<Item> {
     pub fn new(scroll_begin: ListBegin, list_top: ListTop) -> Self {
         Self {
             list: Vec::new(),
@@ -144,6 +144,14 @@ impl<Item: ListComponent> List<Item> {
 
     pub fn select(&mut self, idx: u16) {
         self.scroll.selected_msg = Some(idx.max(self.list.len() as u16 - 1));
+    }
+
+    pub fn get_select_idx(&mut self) -> Option<u16> {
+        self.scroll.selected_msg
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
     }
 
     pub fn push(&mut self, item: Item) {

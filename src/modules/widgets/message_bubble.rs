@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -7,13 +6,13 @@ use unicode_width::UnicodeWidthStr;
 use crate::modules::protocol::{Message, MessageContent};
 use crate::modules::widgets::list_component::*;
 
-enum MsgBubbleAllignment{
+pub enum MsgBubbleAllignment{
     Left,
     Right,
 }
 
-struct MsgBubble {
-    sender: Arc<String>,
+pub struct MsgBubble {
+    sender: String,
     message: Message,
     allignment: MsgBubbleAllignment,
     render_cache: Option<ListCache>,
@@ -21,8 +20,8 @@ struct MsgBubble {
 
 
 impl MsgBubble {
-    fn new(
-        sender: Arc<String>,
+    pub fn new(
+        sender: String,
         message: Message,
         allignment: MsgBubbleAllignment
     ) -> Self {
@@ -35,7 +34,7 @@ impl MsgBubble {
     }
 }
 
-impl ListComponent for MsgBubble {
+impl ListItem for MsgBubble {
     fn get_cache(&mut self) -> &mut Option<ListCache> {
         &mut self.render_cache
     }
@@ -76,7 +75,7 @@ impl ListComponent for MsgBubble {
 fn bubble_content(content: & MessageContent, style: &Style, window_max_width: u16) -> Vec<Line<'static>> {
     match &content {
         MessageContent::Text(text) => {
-            textwrap::wrap_columns(text, 1, window_max_width as usize, "|", "*unused*", "|")    // *unused* because for only 1 column this argument is not needed.
+            textwrap::wrap_columns(text, 1, window_max_width as usize, "│", "*unused*", "│")    // *unused* because for only 1 column this argument is not needed.
                 .into_iter()
                 .map(|line| {
                     Line::from(Span::styled(line, *style))
@@ -84,7 +83,7 @@ fn bubble_content(content: & MessageContent, style: &Style, window_max_width: u1
                 .collect()
         },
         MessageContent::Empty() => {
-            vec![Line::from(Span::styled("|".to_string() + &"#".repeat(window_max_width as usize - 2) + "|", *style))]
+            vec![Line::from(Span::styled("│".to_string() + &"#".repeat(window_max_width as usize - 2) + "│", *style))]
         }
     }
 }

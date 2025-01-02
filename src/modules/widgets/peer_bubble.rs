@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use ratatui::style::Style;
 use ratatui::style::Color;
 use ratatui::text::Span;
@@ -8,14 +7,14 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::modules::widgets::list_component::*;
 
-struct PeerBubble {
-    name: Arc<String>,
+pub struct PeerBubble {
+    name: String,
     addr: String,
     render_cache: Option<ListCache>,
 }
 
 impl PeerBubble {
-    fn new(name: Arc<String>, addr: SocketAddr) -> Self {
+    pub fn new(name: String, addr: SocketAddr) -> Self {
         PeerBubble { 
             name,
             addr: addr.to_string(),
@@ -24,7 +23,7 @@ impl PeerBubble {
     }
 }
 
-impl ListComponent for PeerBubble {
+impl ListItem for PeerBubble {
     fn get_cache(&mut self) -> &mut Option<ListCache> {
         &mut self.render_cache
     }
@@ -33,16 +32,16 @@ impl ListComponent for PeerBubble {
         let bottom_address_length = UnicodeWidthStr::width(self.addr.as_str()).min(window_max_width as usize - 2);
         let middle_name_length    = UnicodeWidthStr::width(self.name.as_str()).min(window_max_width as usize - 2);
         let bottom_address: String = format!("{:─<width$}", &self.addr[..bottom_address_length], width = window_max_width as usize - 2);
-        let middle_name:    String = format!("{:─<width$}", &self.name[..middle_name_length], width = window_max_width as usize - 2);
+        let middle_name:    String = format!("{: <width$}", &self.name[..middle_name_length], width = window_max_width as usize - 2);
 
         let style = if selected {
-            Style::default().bg(Color::Yellow) // Change background color to Yellow if selected
+            Style::default().bg(Color::DarkGray) // Change background color to Yellow if selected
         } else {
             Style::default()
         };
 
         let top_bar    = "┌".to_string() + &"─".repeat(window_max_width as usize - 2) + "┐";
-        let middle_bar = "|".to_string() + &middle_name                               + "|";
+        let middle_bar = "│".to_string() + &middle_name                               + "│";
         let bottom_bar = "└".to_string() + &bottom_address                            + "┘";
 
         let top_bar = Span::styled(top_bar, style);

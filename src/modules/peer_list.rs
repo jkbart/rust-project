@@ -1,18 +1,13 @@
 use crossterm::event::KeyCode;
 use ratatui::layout::Rect;
-use ratatui::prelude::Stylize;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
 use ratatui::style::Style;
-use ratatui::text::Line;
 use ratatui::widgets::Borders;
-use ratatui::widgets::List;
-use ratatui::widgets::ListItem;
-use ratatui::widgets::StatefulWidget;
 use ratatui::widgets::Widget;
 use ratatui::{
     buffer::Buffer,
-    widgets::{Block, ListState},
+    widgets::Block,
 };
 
 use super::{networking::*, protocol::*};
@@ -24,9 +19,12 @@ use tokio::sync::mpsc;
 
 use crate::modules::peer_state::*;
 
+use crate::modules::widgets::list_component::*;
+use crate::modules::widgets::peer_bubble::*;
+
 pub struct PeerList {
     pub peer_list: Vec<PeerState>,
-    pub state: ListState,
+    pub peer_list_ui: ListComponent<PeerBubble>,
     peer_buffer: Arc<Mutex<Vec<PeerState>>>,
     _peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
 }
@@ -42,7 +40,7 @@ impl PeerList {
 
         PeerList {
             peer_list: Vec::new(),
-            state: ListState::default(),
+            peer_list_ui: ListComponent::new(ListBegin::Top, ListTop::First),
             peer_buffer,
             _peer_updator: peer_updator,
         }
@@ -50,74 +48,56 @@ impl PeerList {
 
     pub fn update(&mut self) {
         let mut peer_buffer = self.peer_buffer.lock().unwrap();
+
+        for peer in peer_buffer.iter() {
+            self.peer_list_ui.push(PeerBubble::new(peer.name.clone(), peer.addr.clone()));
+        }
+
         self.peer_list.append(&mut peer_buffer);
-        if self.state.selected().is_none() && !self.peer_list.is_empty() {
-            self.state.select(Some(0));
-        }
-    }
 
-    pub fn select_next(&mut self) {
-        if let Some(idx) = self.state.selected() {
-            self.state.select(Some((idx + 1) % self.peer_list.len()));
+        if self.peer_list_ui.get_select_idx().is_none() && !self.peer_list_ui.is_empty() {
+            self.peer_list_ui.select(0);
         }
-    }
-
-    pub fn select_previous(&mut self) {
-        if let Some(idx) = self.state.selected() {
-            self.state.select(Some(
-                (idx + self.peer_list.len() - 1) % self.peer_list.len(),
-            ));
-        }
-    }
-
-    pub fn get_selected(&mut self) -> Option<&mut PeerState> {
-        self.state.selected().map(|idx| &mut self.peer_list[idx])
     }
 
     pub fn handle_event(&mut self, keycode: &KeyCode) {
         match &keycode {
             KeyCode::Up => {
-                self.select_previous();
+                self.peer_list_ui.go_up();
             }
             KeyCode::Down => {
-                self.select_next();
+                self.peer_list_ui.go_down();
             }
             _ => {}
         }
     }
 
-    pub fn render(&mut self, block: &mut Rect, buf: &mut Buffer, is_active: bool) {
-        let peer_items: Vec<ListItem> = self
-            .peer_list
-            .iter()
-            .enumerate()
-            .map(|(idx, peer)| {
-                if self.state.selected() != Some(idx) {
-                    ListItem::from(Line::from(vec![(*peer.name).bold()]))
-                } else {
-                    ListItem::from(Line::from(vec![(*peer.name).bold()])).bg(Color::DarkGray)
-                }
-            })
-            .collect();
+    pub fn get_selected(&mut self) -> Option<&mut PeerState> {
+        self.peer_list_ui.get_select_idx().map(|idx| &mut self.peer_list[idx as usize])
+    }
 
-        if !peer_items.is_empty() {
-            let peer_list = List::new(peer_items).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Peers:")
-                    .border_style(Style::default().add_modifier(Modifier::BOLD))
-                    .border_style(if is_active {
-                        Style::default().fg(Color::Green)
-                    } else {
-                        Style::default()
-                    }),
-            );
-            StatefulWidget::render(peer_list, *block, buf, &mut self.state);
-        } else {
-            let block2 = Block::default()
+    pub fn render(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
+        if self.peer_list_ui.is_empty() {
+            let block = Block::default()
                 .title("No users detected!")
                 .borders(ratatui::widgets::Borders::ALL);
-            Widget::render(block2, *block, buf);
+            Widget::render(block, *rect, buf);
+        } else {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title("Peers:")
+                .border_style(Style::default().add_modifier(Modifier::BOLD))
+                .border_style(if is_active {
+                    Style::default().fg(Color::Green)
+                } else {
+                    Style::default()
+                });
+
+            let content_area = block.inner(*rect);
+            
+            Widget::render(block, *rect, buf);
+
+            self.peer_list_ui.render(content_area, buf);
         }
     }
 }

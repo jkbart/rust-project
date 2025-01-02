@@ -24,6 +24,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
+use crate::modules::widgets::message_bubble::*;
+use crate::modules::widgets::list_component::*;
+
 use tokio::sync::mpsc;
 
 pub struct MessageContext {
@@ -34,8 +37,7 @@ pub struct MessageContext {
 pub struct PeerState {
     pub name: String,
     pub addr: SocketAddr,
-    pub conversation: Vec<MessageContext>,
-    conversation_state: ListState,
+    pub messages: ListComponent<MsgBubble>,
     pub next_message: Message,
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
     message_writer_queue: mpsc::UnboundedSender<Message>,
@@ -50,10 +52,16 @@ impl PeerState {
 
     pub fn update(&mut self) {
         let mut msg_buffer = self.conversation_buffer.lock().unwrap();
-        self.conversation.append(&mut msg_buffer);
-        self.conversation_state
-            .select(Some(self.conversation.len()));
-        info!("{:?}", self.conversation_state);
+        self.messages.list.extend(msg_buffer.drain(..).map(|mc| {
+            MsgBubble::new(
+                self.name.clone(),
+                mc.message,
+                match mc.was_received {
+                    true => MsgBubbleAllignment::Left,
+                    false => MsgBubbleAllignment::Right,
+                }
+            )
+        }));
     }
 
     pub fn send(&mut self, msg: Message) {
@@ -88,15 +96,6 @@ impl PeerState {
     }
 }
 
-impl<'a> IntoIterator for &'a PeerState {
-    type Item = &'a MessageContext; // Borrows the items
-    type IntoIter = std::slice::Iter<'a, MessageContext>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.conversation.iter()
-    }
-}
-
 impl From<ConnectionData> for PeerState {
     fn from(connection_data: ConnectionData) -> Self {
         let conversation_buffer: Arc<Mutex<Vec<MessageContext>>> = Arc::new(Vec::new().into());
@@ -115,8 +114,7 @@ impl From<ConnectionData> for PeerState {
         PeerState {
             name: connection_data.peer_name,
             addr: connection_data.peer_address,
-            conversation: Vec::new(),
-            conversation_state: ListState::default(),
+            messages: ListComponent::new(ListBegin::Bottom, ListTop::Last),
             next_message: Message {
                 content: MessageContent::Text(String::new()),
                 msg_id: rand::thread_rng().next_u64(),
@@ -167,29 +165,16 @@ async fn message_writer(
 
 impl PeerState {
     // Render conversation.
-    pub fn render_conv(&mut self, block: &mut Rect, buf: &mut Buffer) {
-        let msg_items: Vec<ListItem> = self
-            .conversation
-            .iter()
-            .map(|msg| {
-                let line = match &msg.message.content {
-                    MessageContent::Text(txt) => Line::from(vec![(txt.deref()).bold()]),
-                    MessageContent::Empty() => Line::from(vec!["empty msg".bold()]),
-                };
-                if msg.was_received {
-                    ListItem::from(line.left_aligned())
-                } else {
-                    ListItem::from(line.right_aligned())
-                }
-            })
-            .collect();
+    pub fn render_conv(&mut self, rect: &mut Rect, buf: &mut Buffer) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(format!("Conversation with {}:", &self.name));
 
-        let msg_list = List::new(msg_items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!("Conversation with {}:", &self.name)),
-        );
-        StatefulWidget::render(msg_list, *block, buf, &mut self.conversation_state);
+        let conv_rect = block.inner(*rect);
+
+        Widget::render(block, *rect, buf);
+
+        self.messages.render(conv_rect, buf);
     }
 
     // Render text input box.
