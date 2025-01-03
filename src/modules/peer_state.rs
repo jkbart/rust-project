@@ -189,7 +189,7 @@ impl PeerState<'_> {
     pub fn render(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
         // Devide conversation to include editor box.
         let [mut conv_block, mut edit_block] =
-            Layout::vertical([Constraint::Percentage(80), Constraint::Percentage(20)])
+            Layout::vertical([Constraint::Min(3), Constraint::Length(3)])
                 .areas(*rect);
 
         self.render_conv(&mut conv_block, buf, is_active && self.messages.is_selected());
