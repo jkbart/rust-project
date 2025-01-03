@@ -1,19 +1,28 @@
 use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthStr;
 
-use crate::modules::protocol::{Message, MessageContent};
+use unicode_width::UnicodeWidthStr;
+use humansize::{format_size, DECIMAL};
+
+use crate::modules::protocol::*;
 use crate::modules::widgets::list_component::*;
 
-pub enum MsgBubbleAllignment{
+pub enum MsgBubbleAllignment {
     Left,
     Right,
 }
 
+pub struct LoadingBar {
+    pub position: u64,
+    pub end: u64,
+    pub changed: bool,
+}
+
 pub struct MsgBubble {
     sender: String,
-    message: Message,
+    message: UserMessage,
+    loading_bar: Option<LoadingBar>,    // Used for file downloading.
     allignment: MsgBubbleAllignment,
     render_cache: Option<ListCache>,
 }
@@ -22,12 +31,13 @@ pub struct MsgBubble {
 impl MsgBubble {
     pub fn new(
         sender: String,
-        message: Message,
+        message: UserMessage,
         allignment: MsgBubbleAllignment
     ) -> Self {
         MsgBubble {
             sender,
             message,
+            loading_bar: None,
             allignment,
             render_cache: None,
         }
@@ -36,10 +46,18 @@ impl MsgBubble {
 
 impl ListItem for MsgBubble {
     fn get_cache(&mut self) -> &mut Option<ListCache> {
+        if self.loading_bar.as_ref().is_some_and(|lb| lb.changed) {
+            self.render_cache = None;
+        }
+
         &mut self.render_cache
     }
 
     fn prerender(&mut self, window_max_width: u16, selected: bool) {
+        if let Some(loading_bar) = self.loading_bar.as_mut() {
+            loading_bar.changed = false;
+        }
+
         let style = if selected {
             Style::default().bg(Color::Yellow) // Change background color to Yellow if selected
         } else {
@@ -50,7 +68,7 @@ impl ListItem for MsgBubble {
 
         let mut bubble_width = (name_length + 2).min(window_max_width as usize);
 
-        let mut middle_lines = bubble_content(&self.message.content, window_max_width, &mut bubble_width); // Needs to be called before top_name calculations.
+        let mut middle_lines = bubble_content(&self.message, &self.loading_bar, window_max_width, &mut bubble_width); // Needs to be called before top_name calculations.
 
         let mut raw_lines = Vec::<String>::new();
 
@@ -89,12 +107,13 @@ impl ListItem for MsgBubble {
 }
 
 fn bubble_content(
-    content: & MessageContent,
+    msg: &UserMessage,
+    loading_bar: &Option<LoadingBar>,
     window_max_width: u16,
     bubble_width: &mut usize
 ) -> Vec<String> {
-    match &content {
-        MessageContent::Text(text) => {
+    match &msg {
+        UserMessage::Text(text) => {
             let mut lines = textwrap::wrap(text, window_max_width as usize - 4);
             if lines.is_empty() {
                 lines.push(std::borrow::Cow::Borrowed(" "));
@@ -110,8 +129,18 @@ fn bubble_content(
                 })
                 .collect()
         },
-        MessageContent::Empty() => {
-            vec!["│".to_string() + &"#".repeat(window_max_width as usize - 2) + "│"]
+        UserMessage::FileHeader(name, size, _id) => {
+            let size: String = format_size(*size, DECIMAL);
+
+            let mut line = "FILE ".to_string() + &size +  " " + name;
+
+            if let Some(loading_bar) = loading_bar {
+                line = line + " " + format_size(loading_bar.position, DECIMAL).as_str() + "/" + &format_size(loading_bar.end, DECIMAL);
+            }
+
+            let line_width = (UnicodeWidthStr::width(line.as_str())).min(window_max_width as usize - 4).max(*bubble_width - 4);
+        
+            vec!["│ ".to_string() + format!("{: <width$}", line, width = line_width).as_str() + " │"]
         }
     }
 }

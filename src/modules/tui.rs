@@ -6,7 +6,6 @@ use super::{event_handler::*, peer_list::*};
 use ratatui::{
     backend::CrosstermBackend,
     buffer::Buffer,
-    crossterm::event::KeyCode,
     layout::{Constraint, Layout, Rect},
     widgets::Widget,
     Terminal,

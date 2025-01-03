@@ -6,28 +6,33 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::UNIQUE_BYTES;
 
-/// Struct with content of message.
+
+/// Struct with content of user message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum MessageContent {
+pub enum UserMessage {
     Text(String),
-    Empty(), // Added for now to supress warnings in tests.
-             // TODO: add file exchange fields.
+    FileHeader(String, u64, u64),      // Filename, filesize, file-id
 }
 
-/// Message wrapper for meta data.
+/// Struct with content of internal message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Message {
-    // pub sender: String,      // No need to include it in already established tcp connection.
-    // pub receiver: String,    // No need to include it in already established tcp connection.
-    pub content: MessageContent,
-    pub msg_id: u64,
+pub enum InternalMessage {
+    FileRequest(u64),                  // File-id
+    FileContent(u64, u64, Vec<u8>),    // File-id, first byte idx, bytes
 }
+
+/// Main message structure.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Message {
+    User(UserMessage),
+    Internal(InternalMessage),
+}
+
 
 /// Struct that by being broadcasted annouces user presence.
 /// Should not be sent as plain serialization in order to avoid misdetections.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserDiscovery {
-    // pub name: String,
     pub port: u16,
     pub user_id: u64,
 }

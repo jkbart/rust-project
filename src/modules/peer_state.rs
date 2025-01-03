@@ -1,3 +1,6 @@
+use tokio::io::AsyncReadExt;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use ratatui::prelude::Layout;
 use ratatui::prelude::Constraint;
 use ratatui::prelude::Rect;
@@ -11,11 +14,13 @@ use ratatui::widgets::Borders;
 use ratatui::widgets::Widget;
 
 use ratatui::text::Line;
+use tokio::io::AsyncWriteExt;
 use unicode_width::UnicodeWidthStr;
 
 use super::{networking::*, protocol::*};
+use crate::config::*;
+
 use cli_log::*;
-use rand::RngCore;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
@@ -28,9 +33,12 @@ use tokio::sync::mpsc;
 
 use tui_textarea::TextArea;
 
+type DownloadedFilesMap = Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<InternalMessage>>>>;
+type OwnedFilesMap = Arc<Mutex<HashMap<u64, PathBuf>>>;
+
 pub struct MessageContext {
     pub was_received: bool, // Whether it was sent or received.
-    pub message: Message,
+    pub message: UserMessage,
 }
 
 pub struct PeerState<'a> {
@@ -40,6 +48,8 @@ pub struct PeerState<'a> {
 
     pub messages: ListComponent<MsgBubble>,
     pub editor: TextArea<'a>,
+    downloaded_files: DownloadedFilesMap,
+    owned_files: OwnedFilesMap,
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
     message_writer_queue: mpsc::UnboundedSender<Message>,
     message_writer_handle: JoinHandle<Result<(), StreamSerializerError>>,
@@ -73,48 +83,60 @@ impl PeerState<'_> {
     }
 
     pub fn handle_event(&mut self, key: KeyEvent, _current_screen: &mut AppPosition) -> bool {
-        match key {
-            key if key.code == KeyCode::Esc => {
-                if key.kind == crossterm::event::KeyEventKind::Press {
-                    if self.messages.is_selected() {
+        if self.messages.is_selected() {
+            match key {
+                key if key.code == KeyCode::Esc => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
                         self.messages.reset();
-                    } else {
-                        return true;
                     }
-                }
-            },
-            key if key.code == KeyCode::Up => {
-                if key.kind == crossterm::event::KeyEventKind::Press {
-                    if !self.messages.is_selected() {
-                        self.messages.go_down();    // First select is little diffrent.
-                    } else {
+                },
+                key if key.code == KeyCode::Up => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
                         self.messages.go_up();
                     }
-                }
-            },
-            key if key.code == KeyCode::Down => {
-                if key.kind == crossterm::event::KeyEventKind::Press && self.messages.is_selected() {
-                    if !self.messages.go_down() {
-                        self.messages.reset();
+                },
+                key if key.code == KeyCode::Down => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        if !self.messages.go_down() {
+                            self.messages.reset();
+                        }
+                    }
+                },
+                key if key.code == KeyCode::Enter => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
                     }
                 }
-            },
-            key if key.code == KeyCode::Enter && key.kind == crossterm::event::KeyEventKind::Press && !self.messages.is_selected() => {
-                let msg = Message {
-                    content: MessageContent::Text(self.editor.lines().join("\n")),
-                    msg_id: rand::thread_rng().next_u64(),
-                };
-
-                self.editor = TextArea::default();
-
-                self.send(msg);
+                _ => {},
             }
-            editor_input if !self.messages.is_selected() =>  {
-                self.editor.input(editor_input);
-            },
-            _ => {},
-        }
+        } else {
+            match key {
+                key if key.code == KeyCode::Esc => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        return true;
+                    }
+                },
+                key if key.code == KeyCode::Up => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        self.messages.go_down();    // First select is little diffrent.
+                    }
+                },
+                key if key.code == KeyCode::Enter => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        let msg = Message::User(
+                            UserMessage::Text(self.editor.lines().join("\n")),
+                        );
 
+                        self.editor = TextArea::default();
+
+                        self.send(msg);
+                    }
+                }
+                editor_input => {
+                    self.editor.input(editor_input);
+                },
+            }
+        }
+        
         false
     }
 }
@@ -126,8 +148,11 @@ impl From<ConnectionData> for PeerState<'_> {
         let (rx_stream, tx_stream) = connection_data.stream.into_split();
         let (tx_queue, rx_queue) = mpsc::unbounded_channel::<Message>();
 
+        let downloaded_files = Arc::new(Mutex::new(HashMap::new()));
+        let owned_files = Arc::new(Mutex::new(HashMap::new()));
+
         let message_reader_handle =
-            tokio::task::spawn(message_reader(rx_stream, conversation_buffer.clone()));
+            tokio::task::spawn(message_reader(rx_stream, tx_queue.clone(), conversation_buffer.clone(), downloaded_files.clone(), owned_files.clone()));
         let message_writer_handle = tokio::task::spawn(message_writer(
             tx_stream,
             conversation_buffer.clone(),
@@ -141,6 +166,8 @@ impl From<ConnectionData> for PeerState<'_> {
 
             messages: ListComponent::new(ListBegin::Bottom, ListTop::Last),
             editor: TextArea::default(),
+            downloaded_files,
+            owned_files,
             conversation_buffer,
             message_writer_queue: tx_queue,
             message_writer_handle,
@@ -151,16 +178,119 @@ impl From<ConnectionData> for PeerState<'_> {
 
 async fn message_reader(
     mut stream: tokio::net::tcp::OwnedReadHalf,
+    tx_message: mpsc::UnboundedSender<Message>,
     msgs: Arc<Mutex<Vec<MessageContext>>>,
+    downloaded_files: DownloadedFilesMap,
+    owned_files: OwnedFilesMap,
 ) -> Result<(), StreamSerializerError> {
     loop {
         let message = Message::read(&mut stream).await?;
         info!("Message received via tcp!");
-        msgs.lock().unwrap().push(MessageContext {
-            was_received: true,
-            message,
-        });
+        match message {
+            Message::User(user_message) => {
+                msgs.lock().unwrap().push(MessageContext {
+                    was_received: true,
+                    message: user_message,
+                });
+            },
+            Message::Internal(internal_message) => {
+                match internal_message {
+                    InternalMessage::FileRequest(id) => {
+                        if let Some(file_path) = owned_files.lock().unwrap().get(&id) {
+                            tokio::task::spawn(
+                                file_uploader(tx_message.clone(), file_path.clone(), id)
+                            );
+                        }
+                    }
+                    InternalMessage::FileContent(id, _, _) => {
+                        if let Some(tx) = downloaded_files.lock().unwrap().get(&id) {
+                            let _ = tx.send(internal_message);
+                        }
+                    }
+                }
+            },
+        }
     }
+}
+
+async fn file_downloader(
+    mut packets: mpsc::UnboundedReceiver<InternalMessage>,
+    file_name: String,
+    file_size: u64, 
+) {
+    let mut file_path = DOWNLOAD_PATH.clone();
+    file_path.push(&file_name);
+
+    // If files [name, name (1), ..., name (9)] exists in download dir, abandon download.
+    'main: for i in 0..10 {
+        let mut file = match tokio::fs::OpenOptions::new()
+            .create_new(true) // Ensures the file doesn't already exist
+            .write(true)
+            .open(&file_path)
+            .await 
+        {
+            Ok(file) => file,
+            Err(_) => {
+                file_path = DOWNLOAD_PATH.clone();
+                file_path.push(format!("{} ({})", file_name, i + 1));
+
+                continue;
+            }
+        };
+
+        let mut byte_cnt = 0;
+
+        while let Some(packet) = packets.recv().await {
+            match packet {
+                InternalMessage::FileContent(_, byte_idx, bytes) => {
+                    if byte_idx != byte_cnt || byte_idx + bytes.len() as u64 > file_size {
+                        break 'main;
+                    }
+
+                    byte_cnt += bytes.len() as u64;
+
+                    if file.write_all(&bytes).await.is_err() {
+                        break 'main;
+                    }
+                },
+                _ => {},
+            }
+        }
+    }
+}
+
+async fn file_uploader(
+    packets: mpsc::UnboundedSender<Message>,
+    file_name: PathBuf,
+    file_id: u64, 
+) -> std::io::Result<()> {
+    // Open the file in read-only mode
+    let mut file = tokio::fs::File::open(file_name).await?;
+
+    let mut buffer = vec![0; 4096]; // Buffer size 4096 bytes
+
+    let mut byte_idx = 0;
+
+    loop {
+        let n = file.read(&mut buffer).await?;
+
+        if n == 0 {
+            break; // End of file
+        }
+
+        // Trim the buffer to the size of the data read
+        let chunk = buffer[..n].to_vec();
+
+        // Send the chunk through the sender
+        let message = Message::Internal(InternalMessage::FileContent(file_id, byte_idx, chunk));
+        byte_idx += n as u64;
+
+        if let Err(_) = packets.send(message) {
+            break;
+        }
+    }
+
+    Ok(())
 }
 
 async fn message_writer(
@@ -173,10 +303,17 @@ async fn message_writer(
             Some(message) => {
                 message.send(&mut stream).await?;
                 info!("Message sended via tcp!");
-                msgs.lock().unwrap().push(MessageContext {
-                    was_received: false,
-                    message,
-                });
+
+                match message {
+                    Message::User(message) => {
+                        msgs.lock().unwrap().push(MessageContext {
+                            was_received: false,
+                            message,
+                        });
+                    },
+                    _ => {}
+                }
+
             }
             None => {
                 break Ok(());
