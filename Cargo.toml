@@ -17,3 +17,4 @@ crossterm = { version = "0.28.1", features = ["event-stream"] }
 cli-log = "2.1.0"
 textwrap = "0.16.1"
 unicode-width = "0.2.0"
+tui-textarea = "0.7.0"

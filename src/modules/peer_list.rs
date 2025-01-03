@@ -1,4 +1,5 @@
 use crossterm::event::KeyCode;
+use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 use ratatui::style::Modifier;
@@ -15,21 +16,23 @@ use cli_log::*;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
+use crate::modules::tui::AppPosition;
+
 use tokio::sync::mpsc;
 
 use crate::modules::peer_state::*;
 
 use crate::modules::widgets::list_component::*;
 
-pub struct PeerList {
-    pub peer_list: ListComponent<PeerState>,
-    peer_buffer: Arc<Mutex<Vec<PeerState>>>,
+pub struct PeerList<'a> {
+    pub peer_list: ListComponent<PeerState<'a>>,
+    peer_buffer: Arc<Mutex<Vec<ConnectionData>>>,
     _peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
 }
 
-impl PeerList {
+impl<'a> PeerList<'a> {
     pub fn new() -> Self {
-        let peer_buffer: Arc<Mutex<Vec<PeerState>>> = Arc::new(Mutex::new(Vec::new()));
+        let peer_buffer: Arc<Mutex<Vec<ConnectionData>>> = Arc::new(Mutex::new(Vec::new()));
 
         let (tx_peer_list, rx_peer_list) = mpsc::unbounded_channel::<ConnectionData>();
         tokio::task::spawn(search_for_users(tx_peer_list));
@@ -46,26 +49,39 @@ impl PeerList {
     pub fn update(&mut self) {
         let mut peer_buffer = self.peer_buffer.lock().unwrap();
 
-        self.peer_list.append(&mut peer_buffer);
+        for cd in peer_buffer.drain(..) {
+            self.peer_list.push(PeerState::<'a>::from(cd))
+        }
 
         if self.peer_list.get_selected_idx().is_none() && !self.peer_list.is_empty() {
             self.peer_list.select(0);
         }
     }
 
-    pub fn handle_event(&mut self, keycode: &KeyCode) {
-        match &keycode {
-            KeyCode::Up => {
-                self.peer_list.go_up();
+    pub fn handle_event(&mut self, key: KeyEvent, current_screen: &mut AppPosition) -> bool {
+        if key.kind == crossterm::event::KeyEventKind::Press {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc  => {
+                    return true;
+                }
+
+                KeyCode::Enter if self.get_selected().is_some() => {
+                    *current_screen = AppPosition::ChatSession;
+                }
+                KeyCode::Up => {
+                    self.peer_list.go_up();
+                }
+                KeyCode::Down => {
+                    self.peer_list.go_down();
+                }
+                _ => {}
             }
-            KeyCode::Down => {
-                self.peer_list.go_down();
-            }
-            _ => {}
         }
+
+        return false;
     }
 
-    pub fn get_selected(&mut self) -> Option<&mut PeerState> {
+    pub fn get_selected(&mut self) -> Option<&mut PeerState<'a>> {
         self.peer_list.get_selected()
     }
 
@@ -96,14 +112,14 @@ impl PeerList {
 }
 
 pub async fn peer_list_updator(
-    peers: Arc<Mutex<Vec<PeerState>>>,
+    peers: Arc<Mutex<Vec<ConnectionData>>>,
     mut peer_queue: mpsc::UnboundedReceiver<ConnectionData>,
 ) -> Result<(), StreamSerializerError> {
     loop {
         match peer_queue.recv().await {
             Some(connection_data) => {
                 info!("New user detected!");
-                peers.lock().unwrap().push(connection_data.into());
+                peers.lock().unwrap().push(connection_data);
             }
             None => {
                 break Ok(());

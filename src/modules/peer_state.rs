@@ -1,14 +1,14 @@
+use ratatui::prelude::Layout;
+use ratatui::prelude::Constraint;
+use ratatui::prelude::Rect;
+use ratatui::prelude::Buffer;
+use ratatui::widgets::Block;
 use crossterm::event::KeyCode;
-use ratatui::layout::Rect;
+use crossterm::event::KeyEvent;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
 use ratatui::widgets::Borders;
-use ratatui::widgets::Paragraph;
 use ratatui::widgets::Widget;
-use ratatui::{
-    buffer::Buffer,
-    widgets::Block,
-};
 
 use ratatui::text::Line;
 use unicode_width::UnicodeWidthStr;
@@ -22,28 +22,31 @@ use tokio::task::JoinHandle;
 
 use crate::modules::widgets::message_bubble::*;
 use crate::modules::widgets::list_component::*;
+use crate::modules::tui::AppPosition;
 
 use tokio::sync::mpsc;
+
+use tui_textarea::TextArea;
 
 pub struct MessageContext {
     pub was_received: bool, // Whether it was sent or received.
     pub message: Message,
 }
 
-pub struct PeerState {
+pub struct PeerState<'a> {
     pub name: String,
     pub addr: SocketAddr,
     render_cache: Option<ListCache>,
 
     pub messages: ListComponent<MsgBubble>,
-    pub next_message: Message,
+    pub editor: TextArea<'a>,
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
     message_writer_queue: mpsc::UnboundedSender<Message>,
     message_writer_handle: JoinHandle<Result<(), StreamSerializerError>>,
     message_reader_handle: JoinHandle<Result<(), StreamSerializerError>>,
 }
 
-impl PeerState {
+impl PeerState<'_> {
     pub fn is_active(&self) -> bool {
         !self.message_writer_handle.is_finished() && !self.message_reader_handle.is_finished()
     }
@@ -69,35 +72,54 @@ impl PeerState {
         let _ = self.message_writer_queue.send(msg);
     }
 
-    pub fn handle_event(&mut self, keycode: &KeyCode) {
-        match &keycode {
-            KeyCode::Char(c) => match &mut self.next_message.content {
-                MessageContent::Text(msg) => {
-                    msg.push(*c);
+    pub fn handle_event(&mut self, key: KeyEvent, _current_screen: &mut AppPosition) -> bool {
+        match key {
+            key if key.code == KeyCode::Esc => {
+                if key.kind == crossterm::event::KeyEventKind::Press {
+                    if self.messages.is_selected() {
+                        self.messages.reset();
+                    } else {
+                        return true;
+                    }
                 }
-                _ => {}
             },
-            KeyCode::Backspace => match &mut self.next_message.content {
-                MessageContent::Text(msg) => {
-                    msg.pop();
+            key if key.code == KeyCode::Up => {
+                if key.kind == crossterm::event::KeyEventKind::Press {
+                    if !self.messages.is_selected() {
+                        self.messages.go_down();    // First select is little diffrent.
+                    } else {
+                        self.messages.go_up();
+                    }
                 }
-                _ => {}
             },
-            KeyCode::Enter => {
-                let mut msg = Message {
-                    content: MessageContent::Text(String::new()),
+            key if key.code == KeyCode::Down => {
+                if key.kind == crossterm::event::KeyEventKind::Press && self.messages.is_selected() {
+                    if !self.messages.go_down() {
+                        self.messages.reset();
+                    }
+                }
+            },
+            key if key.code == KeyCode::Enter && key.kind == crossterm::event::KeyEventKind::Press => {
+                let msg = Message {
+                    content: MessageContent::Text(self.editor.lines().join("\n")),
                     msg_id: rand::thread_rng().next_u64(),
                 };
-                std::mem::swap(&mut msg, &mut self.next_message);
+
+                self.editor = TextArea::default();
 
                 self.send(msg);
             }
-            _ => {}
+            editor_input if !self.messages.is_selected() =>  {
+                self.editor.input(editor_input);
+            },
+            _ => {},
         }
+
+        false
     }
 }
 
-impl From<ConnectionData> for PeerState {
+impl From<ConnectionData> for PeerState<'_> {
     fn from(connection_data: ConnectionData) -> Self {
         let conversation_buffer: Arc<Mutex<Vec<MessageContext>>> = Arc::new(Vec::new().into());
 
@@ -118,10 +140,7 @@ impl From<ConnectionData> for PeerState {
             render_cache: None,
 
             messages: ListComponent::new(ListBegin::Bottom, ListTop::Last),
-            next_message: Message {
-                content: MessageContent::Text(String::new()),
-                msg_id: rand::thread_rng().next_u64(),
-            },
+            editor: TextArea::default(),
             conversation_buffer,
             message_writer_queue: tx_queue,
             message_writer_handle,
@@ -166,11 +185,26 @@ async fn message_writer(
     }
 }
 
-impl PeerState {
+impl PeerState<'_> {
+    pub fn render(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
+        // Devide conversation to include editor box.
+        let [mut conv_block, mut edit_block] =
+            Layout::vertical([Constraint::Percentage(80), Constraint::Percentage(20)])
+                .areas(*rect);
+
+        self.render_conv(&mut conv_block, buf, is_active && self.messages.is_selected());
+        self.render_edit(&mut edit_block, buf, is_active && !self.messages.is_selected());
+    }
+
     // Render conversation.
-    pub fn render_conv(&mut self, rect: &mut Rect, buf: &mut Buffer) {
+    fn render_conv(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_style(if is_active {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default()
+            })
             .title(format!("Conversation with {}:", &self.name));
 
         let conv_rect = block.inner(*rect);
@@ -181,24 +215,19 @@ impl PeerState {
     }
 
     // Render text input box.
-    pub fn render_edit(&mut self, block: &mut Rect, buf: &mut Buffer, is_active: bool) {
-        let text: &str = match &self.next_message.content {
-            MessageContent::Text(txt) => txt,
-            MessageContent::Empty() => "",
-        };
-
-        let paragraph = Paragraph::new(Span::raw(text)).block(
+    fn render_edit(&mut self, block: &mut Rect, buf: &mut Buffer, is_active: bool) {
+        self.editor.set_block(
             Block::default()
-                .title("Text Viewer")
+                .title("Editor")
                 .borders(Borders::ALL)
                 .border_style(if is_active {
                     Style::default().fg(Color::Green)
                 } else {
                     Style::default()
-                }),
+                })
         );
 
-        Widget::render(paragraph, *block, buf);
+        Widget::render(&self.editor, *block, buf);
     }
 
     // Render if no peer was choosen.
@@ -211,7 +240,7 @@ impl PeerState {
 }
 
 
-impl ListItem for PeerState {
+impl ListItem for PeerState<'_> {
     fn get_cache(&mut self) -> &mut Option<ListCache> {
         &mut self.render_cache
     }

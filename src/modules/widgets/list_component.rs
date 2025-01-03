@@ -177,6 +177,10 @@ impl<Item: ListItem> ListComponent<Item> {
         self.scroll.selected_msg.map(|idx| &mut self.list[idx as usize])
     }
 
+    pub fn is_selected(&self) -> bool {
+        self.scroll.selected_msg.is_some()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }

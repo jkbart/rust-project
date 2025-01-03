@@ -13,18 +13,18 @@ use ratatui::{
 };
 
 #[derive(PartialEq)]
-enum AppPosition {
+pub enum AppPosition {
     PeerList,
     ChatSession,
 }
 
-pub struct App {
-    peers: PeerList,
+pub struct App<'a> {
+    peers: PeerList<'a>,
     current_screen: AppPosition,
     events: EventHandler,
 }
 
-impl App {
+impl App<'_> {
     pub fn new() -> Self {
         App {
             peers: PeerList::new(),
@@ -47,29 +47,23 @@ impl App {
                 };
 
                 match &mut self.current_screen {
-                    AppPosition::PeerList => match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
+                    AppPosition::PeerList => {
+                        if self.peers.handle_event(key, &mut self.current_screen) {
                             break 'render_loop;
                         }
-                        KeyCode::Enter if self.peers.get_selected().is_some() => {
-                            self.current_screen = AppPosition::ChatSession;
-                        }
-                        _ => self.peers.handle_event(&key.code),
-                    },
-                    AppPosition::ChatSession => match key.code {
-                        KeyCode::Esc => {
-                            self.current_screen = AppPosition::PeerList;
-                        }
-                        _ => {
-                            if let Some(peer) = self.peers.get_selected() {
-                                peer.handle_event(&key.code);
-                            } else {
+                    }
+                    AppPosition::ChatSession => {
+                        if let Some(peer) = self.peers.get_selected() {
+                            if peer.handle_event(key, &mut self.current_screen) {
                                 self.current_screen = AppPosition::PeerList;
                             }
+                        } else {
+                            self.current_screen = AppPosition::PeerList;
                         }
                     },
                 }
             }
+
             self.peers.update();
             if let Some(peer) = self.peers.get_selected() {
                 peer.update();
@@ -81,7 +75,7 @@ impl App {
     }
 }
 
-impl Widget for &mut App {
+impl Widget for &mut App<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Devide main screen.
         let [mut peers_block, mut msg_block] =
@@ -94,14 +88,10 @@ impl Widget for &mut App {
 
         if let Some(peer) = self.peers.get_selected() {
             // Devide conversation to include editor box.
-            let [mut conv_block, mut edit_block] =
-                Layout::vertical([Constraint::Percentage(80), Constraint::Percentage(20)])
-                    .areas(msg_block);
 
             let is_active: bool = self.current_screen == AppPosition::ChatSession;
 
-            peer.render_conv(&mut conv_block, buf);
-            peer.render_edit(&mut edit_block, buf, is_active);
+            peer.render(&mut msg_block, buf, is_active)
         } else {
             PeerState::render_empty(&mut msg_block, buf);
         }

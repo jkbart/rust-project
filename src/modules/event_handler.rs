@@ -36,9 +36,7 @@ impl EventHandler {
                       Some(Ok(evt)) => {
                         match evt {
                           crossterm::event::Event::Key(key) => {
-                            if key.kind == crossterm::event::KeyEventKind::Press {
                               tx.send(Event::Key(key)).unwrap();
-                            }
                           },
                           _ => {},
                         }
