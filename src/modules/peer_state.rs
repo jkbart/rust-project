@@ -99,7 +99,7 @@ impl PeerState<'_> {
                     }
                 }
             },
-            key if key.code == KeyCode::Enter && key.kind == crossterm::event::KeyEventKind::Press => {
+            key if key.code == KeyCode::Enter && key.kind == crossterm::event::KeyEventKind::Press && !self.messages.is_selected() => {
                 let msg = Message {
                     content: MessageContent::Text(self.editor.lines().join("\n")),
                     msg_id: rand::thread_rng().next_u64(),
