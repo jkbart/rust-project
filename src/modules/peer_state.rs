@@ -1,21 +1,17 @@
 use crossterm::event::KeyCode;
 use ratatui::layout::Rect;
-use ratatui::prelude::Stylize;
 use ratatui::style::{Color, Style};
-use ratatui::text::Line;
 use ratatui::text::Span;
 use ratatui::widgets::Borders;
-use ratatui::widgets::List;
-use ratatui::widgets::ListItem;
 use ratatui::widgets::Paragraph;
-use ratatui::widgets::StatefulWidget;
 use ratatui::widgets::Widget;
 use ratatui::{
     buffer::Buffer,
-    widgets::{Block, ListState},
+    widgets::Block,
 };
 
-use std::ops::Deref;
+use ratatui::text::Line;
+use unicode_width::UnicodeWidthStr;
 
 use super::{networking::*, protocol::*};
 use cli_log::*;
@@ -37,6 +33,8 @@ pub struct MessageContext {
 pub struct PeerState {
     pub name: String,
     pub addr: SocketAddr,
+    render_cache: Option<ListCache>,
+
     pub messages: ListComponent<MsgBubble>,
     pub next_message: Message,
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
@@ -117,6 +115,8 @@ impl From<ConnectionData> for PeerState {
         PeerState {
             name: connection_data.peer_name,
             addr: connection_data.peer_address,
+            render_cache: None,
+
             messages: ListComponent::new(ListBegin::Bottom, ListTop::Last),
             next_message: Message {
                 content: MessageContent::Text(String::new()),
@@ -207,5 +207,46 @@ impl PeerState {
             .title("No conversation picked!")
             .borders(ratatui::widgets::Borders::ALL);
         Widget::render(block2, *block, buf);
+    }
+}
+
+
+impl ListItem for PeerState {
+    fn get_cache(&mut self) -> &mut Option<ListCache> {
+        &mut self.render_cache
+    }
+
+    fn prerender(&mut self, window_max_width: u16, selected: bool) {
+        let bottom_address_length = UnicodeWidthStr::width(self.addr.to_string().as_str()).min(window_max_width as usize - 2);
+        let middle_name_length    = UnicodeWidthStr::width(self.name.as_str()).min(window_max_width as usize - 2);
+        let bottom_address: String = format!("{:─<width$}", &self.addr.to_string()[..bottom_address_length], width = window_max_width as usize - 2);
+        let middle_name:    String = format!("{: <width$}", &self.name[..middle_name_length], width = window_max_width as usize - 2);
+
+        let style = if selected {
+            Style::default().bg(Color::DarkGray) // Change background color to Yellow if selected
+        } else {
+            Style::default()
+        };
+
+        let top_bar    = "┌".to_string() + &"─".repeat(window_max_width as usize - 2) + "┐";
+        let middle_bar = "│".to_string() + &middle_name                               + "│";
+        let bottom_bar = "└".to_string() + &bottom_address                            + "┘";
+
+        let top_bar = Span::styled(top_bar, style);
+        let middle_bar = Span::styled(middle_bar, style);
+        let bottom_bar = Span::styled(bottom_bar, style);
+
+        let block_lines: Vec<Line> = vec![
+            Line::from(vec![top_bar]),
+            Line::from(vec![middle_bar]),
+            Line::from(vec![bottom_bar]),
+        ];
+
+        self.render_cache = Some(ListCache::new(
+            block_lines,
+            window_max_width,
+            3,
+            selected,
+        ));
     }
 }

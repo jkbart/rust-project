@@ -95,18 +95,18 @@ fn bubble_content(
 ) -> Vec<String> {
     match &content {
         MessageContent::Text(text) => {
-            let mut lines = textwrap::wrap(text, window_max_width as usize - 2);
+            let mut lines = textwrap::wrap(text, window_max_width as usize - 4);
             if lines.is_empty() {
                 lines.push(std::borrow::Cow::Borrowed(" "));
             }
 
-            let max_line_width = lines.iter().map(|line| UnicodeWidthStr::width(line.as_ref()) as u16).max().unwrap().max(*bubble_width as u16 - 2);
-            *bubble_width = max_line_width as usize + 2;
+            let max_line_width = lines.iter().map(|line| UnicodeWidthStr::width(line.as_ref()) as u16).max().unwrap().max(*bubble_width as u16 - 4);
+            *bubble_width = max_line_width as usize + 4;
 
             lines
                 .into_iter()
                 .map(|line| {
-                        "│".to_string() + &line + &" ".repeat(*bubble_width as usize - 2 - UnicodeWidthStr::width(line.as_ref())) + "│"
+                        "│ ".to_string() + &line + &" ".repeat(*bubble_width as usize - 4 - UnicodeWidthStr::width(line.as_ref())) + " │"
                 })
                 .collect()
         },

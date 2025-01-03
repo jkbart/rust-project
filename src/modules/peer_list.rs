@@ -20,11 +20,9 @@ use tokio::sync::mpsc;
 use crate::modules::peer_state::*;
 
 use crate::modules::widgets::list_component::*;
-use crate::modules::widgets::peer_bubble::*;
 
 pub struct PeerList {
-    pub peer_list: Vec<PeerState>,
-    pub peer_list_ui: ListComponent<PeerBubble>,
+    pub peer_list: ListComponent<PeerState>,
     peer_buffer: Arc<Mutex<Vec<PeerState>>>,
     _peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
 }
@@ -39,8 +37,7 @@ impl PeerList {
         let peer_updator = tokio::task::spawn(peer_list_updator(peer_buffer.clone(), rx_peer_list));
 
         PeerList {
-            peer_list: Vec::new(),
-            peer_list_ui: ListComponent::new(ListBegin::Top, ListTop::First),
+            peer_list: ListComponent::new(ListBegin::Top, ListTop::First),
             peer_buffer,
             _peer_updator: peer_updator,
         }
@@ -49,35 +46,31 @@ impl PeerList {
     pub fn update(&mut self) {
         let mut peer_buffer = self.peer_buffer.lock().unwrap();
 
-        for peer in peer_buffer.iter() {
-            self.peer_list_ui.push(PeerBubble::new(peer.name.clone(), peer.addr.clone()));
-        }
-
         self.peer_list.append(&mut peer_buffer);
 
-        if self.peer_list_ui.get_select_idx().is_none() && !self.peer_list_ui.is_empty() {
-            self.peer_list_ui.select(0);
+        if self.peer_list.get_selected_idx().is_none() && !self.peer_list.is_empty() {
+            self.peer_list.select(0);
         }
     }
 
     pub fn handle_event(&mut self, keycode: &KeyCode) {
         match &keycode {
             KeyCode::Up => {
-                self.peer_list_ui.go_up();
+                self.peer_list.go_up();
             }
             KeyCode::Down => {
-                self.peer_list_ui.go_down();
+                self.peer_list.go_down();
             }
             _ => {}
         }
     }
 
     pub fn get_selected(&mut self) -> Option<&mut PeerState> {
-        self.peer_list_ui.get_select_idx().map(|idx| &mut self.peer_list[idx as usize])
+        self.peer_list.get_selected()
     }
 
     pub fn render(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
-        if self.peer_list_ui.is_empty() {
+        if self.peer_list.is_empty() {
             let block = Block::default()
                 .title("No users detected!")
                 .borders(ratatui::widgets::Borders::ALL);
@@ -97,7 +90,7 @@ impl PeerList {
             
             Widget::render(block, *rect, buf);
 
-            self.peer_list_ui.render(content_area, buf);
+            self.peer_list.render(content_area, buf);
         }
     }
 }

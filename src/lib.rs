@@ -7,7 +7,6 @@ pub mod modules {
     pub mod tui;
     pub mod widgets {
         pub mod message_bubble;
-        pub mod peer_bubble;
         pub mod list_component;
     }
 }

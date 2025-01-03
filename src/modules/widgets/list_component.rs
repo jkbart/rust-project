@@ -169,8 +169,12 @@ impl<Item: ListItem> ListComponent<Item> {
         self.scroll.top_visisted = Some((idx.max(self.list.len() as u16 - 1), 0));
     }
 
-    pub fn get_select_idx(&mut self) -> Option<u16> {
+    pub fn get_selected_idx(&mut self) -> Option<u16> {
         self.scroll.selected_msg
+    }
+
+    pub fn get_selected(&mut self) -> Option<&mut Item> {
+        self.scroll.selected_msg.map(|idx| &mut self.list[idx as usize])
     }
 
     pub fn is_empty(&self) -> bool {
