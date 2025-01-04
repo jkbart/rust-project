@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use cli_log::error;
 use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -118,18 +119,22 @@ fn bubble_content(
 ) -> Vec<String> {
     match &msg {
         UserMessage::Text(text) => {
-            let mut lines = textwrap::wrap(text, window_max_width as usize - 4);
+            // Little extra padding, because for text:
+            // "C:\Users\jbart\AppData\Local\Packages\Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe\LocalState\{18c6d0aa-02b6-4df0-982c-40fd41c34137}\Capture0.png" 
+            // textwrap::wrap returned one line longer than was asked. This is a problem with textwrap cargo.
+            let mut lines = textwrap::wrap(text, window_max_width as usize - 8); 
             if lines.is_empty() {
                 lines.push(std::borrow::Cow::Borrowed(" "));
             }
 
-            let max_line_width = lines.iter().map(|line| UnicodeWidthStr::width(line.as_ref()) as u16).max().unwrap().max(*bubble_width as u16 - 4);
+            *bubble_width = (*bubble_width).max(4);
+            let max_line_width = lines.iter().map(|line| UnicodeWidthStr::width(line.as_ref()) as u16).max().unwrap_or(0).max(*bubble_width as u16 - 4);
             *bubble_width = max_line_width as usize + 4;
 
             lines
                 .into_iter()
                 .map(|line| {
-                        "│ ".to_string() + &line + &" ".repeat(*bubble_width as usize - 4 - UnicodeWidthStr::width(line.as_ref())) + " │"
+                    "│ ".to_string() + &line + &" ".repeat(*bubble_width as usize - 4 - UnicodeWidthStr::width(line.as_ref())) + " │"
                 })
                 .collect()
         },

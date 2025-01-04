@@ -203,9 +203,12 @@ impl PeerState<'_> {
                     }
                 }
                 key if key.code == KeyCode::Char('v') && key.modifiers == KeyModifiers::CONTROL => {
-                    if let Ok(mut clipboard) = ClipboardContext::new() {
-                        if let Ok(contents) = clipboard.get_contents() {
-                            self.editor.insert_str(contents);
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        if let Ok(mut clipboard) = ClipboardContext::new() {
+                            if let Ok(contents) = clipboard.get_contents() {
+                                self.editor.insert_str(contents);
+                            }
                         }
                     }
                 },
