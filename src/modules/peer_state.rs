@@ -53,9 +53,9 @@ pub struct MessageContext {
 pub struct PeerState<'a> {
     pub name: String,
     pub addr: SocketAddr,
-    render_cache: Option<ListCache>,
+    render_cache: Option<ListCache<'a>>,
 
-    pub messages: ListComponent<MsgBubble>,
+    pub messages: ListComponent<'a, MsgBubble<'a>>,
     pub editor: TextArea<'a>,
     pub editor_mode: EditorMode,
     downloaded_files: DownloadedFilesMap,
@@ -203,7 +203,11 @@ impl PeerState<'_> {
                     }
                 }
                 key if key.code == KeyCode::Char('v') && key.modifiers == KeyModifiers::CONTROL => {
-                    self.editor.insert_str(ClipboardContext::new().unwrap().get_contents().unwrap());
+                    if let Ok(mut clipboard) = ClipboardContext::new() {
+                        if let Ok(contents) = clipboard.get_contents() {
+                            self.editor.insert_str(contents);
+                        }
+                    }
                 },
                 editor_input => {
                     self.editor.input(editor_input);
@@ -470,8 +474,8 @@ impl PeerState<'_> {
 }
 
 
-impl ListItem for PeerState<'_> {
-    fn get_cache(&mut self) -> &mut Option<ListCache> {
+impl<'a> ListItem<'a> for PeerState<'a> {
+    fn get_cache(&mut self) -> &mut Option<ListCache<'a>> {
         &mut self.render_cache
     }
 

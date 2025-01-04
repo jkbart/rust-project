@@ -21,16 +21,16 @@ pub struct LoadingBar {
     pub changed: bool,
 }
 
-pub struct MsgBubble {
+pub struct MsgBubble<'a> {
     pub received_from: Option<String>,
     pub message: UserMessage,
     pub loading_bar: Option<Arc<Mutex<LoadingBar>>>,    // Used for file downloading.
     allignment: MsgBubbleAllignment,
-    render_cache: Option<ListCache>,
+    render_cache: Option<ListCache<'a>>,
 }
 
 
-impl MsgBubble {
+impl MsgBubble<'_> {
     pub fn new(
         received_from: Option<String>,
         message: UserMessage,
@@ -46,8 +46,8 @@ impl MsgBubble {
     }
 }
 
-impl ListItem for MsgBubble {
-    fn get_cache(&mut self) -> &mut Option<ListCache> {
+impl<'a> ListItem<'a> for MsgBubble<'a> {
+    fn get_cache(&mut self) -> &mut Option<ListCache<'a>> {
         if self.loading_bar.as_ref().is_some_and(|lb| lb.lock().unwrap().changed) {
             self.render_cache = None;
         }

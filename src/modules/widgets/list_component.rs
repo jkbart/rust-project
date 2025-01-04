@@ -10,16 +10,16 @@ pub enum RenderingTop {
     Bottom,
 }
 
-pub struct ListCache {
-    cache: Vec<Line<'static>>,
+pub struct ListCache<'a> {
+    cache: Vec<Line<'a>>,
     width: u16,
     height: u16,
     selected: bool,
 }
 
-impl ListCache {
+impl<'a> ListCache<'a> {
     pub fn new(
-        cache: Vec<Line<'static>>,
+        cache: Vec<Line<'a>>,
         width: u16,
         height: u16,
         selected: bool,
@@ -33,8 +33,8 @@ impl ListCache {
     }
 }
 
-pub trait ListItem {
-    fn get_cache(&mut self) -> &mut Option<ListCache>;
+pub trait ListItem<'a> {
+    fn get_cache(&mut self) -> &mut Option<ListCache<'a>>;
     fn prerender(&mut self, window_max_width: u16, selected: bool);
 
     fn set_cache(&mut self, window_max_width: u16, selected: bool) {
@@ -96,12 +96,13 @@ struct Scroll {
     top_visisted: Option<(u16, u16)>,     // Simpler offset, makes implementing scrolling easier.
 }
 
-pub struct ListComponent<Item: ListItem> {
-    pub list: Vec<Item>,        // Assuming this vector is only appended.
+pub struct ListComponent<'a, Item: ListItem<'a>> {
+    pub list: Vec<Item>,
     scroll: Scroll,
+    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
-impl<Item: ListItem> ListComponent<Item> {
+impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
     pub fn new(scroll_begin: ListBegin, list_top: ListTop) -> Self {
         Self {
             list: Vec::new(),
@@ -111,6 +112,7 @@ impl<Item: ListItem> ListComponent<Item> {
                 selected_msg: None,
                 top_visisted: None,
             },
+            _phantom: std::marker::PhantomData::default(),
         }
     }
 

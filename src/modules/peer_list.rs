@@ -25,7 +25,7 @@ use crate::modules::peer_state::*;
 use crate::modules::widgets::list_component::*;
 
 pub struct PeerList<'a> {
-    pub peer_list: ListComponent<PeerState<'a>>,
+    pub peer_list: ListComponent<'a, PeerState<'a>>,
     peer_buffer: Arc<Mutex<Vec<ConnectionData>>>,
     _peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
 }

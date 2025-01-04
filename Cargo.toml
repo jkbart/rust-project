@@ -15,7 +15,7 @@ socket2 = "0.5.8"
 ratatui = "0.29.0"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 cli-log = "2.1.0"
-textwrap = "0.16.1"
+textwrap = { version = "0.16.1", features = ["unicode-width"] }
 unicode-width = "0.2.0"
 tui-textarea = "0.7.0"
 humansize = "2.1.3"
