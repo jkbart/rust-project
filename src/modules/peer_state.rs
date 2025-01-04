@@ -1,3 +1,4 @@
+use rand::Rng;
 use tokio::io::AsyncReadExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,6 +34,13 @@ use tokio::sync::mpsc;
 
 use tui_textarea::TextArea;
 
+use copypasta::{ClipboardContext, ClipboardProvider};
+
+pub enum EditorMode {
+    Text,
+    File,
+}
+
 type DownloadedFilesMap = Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<InternalMessage>>>>;
 type OwnedFilesMap = Arc<Mutex<HashMap<u64, PathBuf>>>;
 
@@ -48,6 +56,7 @@ pub struct PeerState<'a> {
 
     pub messages: ListComponent<MsgBubble>,
     pub editor: TextArea<'a>,
+    pub editor_mode: EditorMode,
     downloaded_files: DownloadedFilesMap,
     owned_files: OwnedFilesMap,
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
@@ -78,12 +87,23 @@ impl PeerState<'_> {
         }));
     }
 
-    pub fn send(&mut self, msg: Message) {
+    pub fn send(&self, msg: Message) {
         let _ = self.message_writer_queue.send(msg);
+    }
+
+    pub fn download_file(&self, file_id: u64, file_name: String, file_size: u64, loading_bar: Arc<Mutex<LoadingBar>>) {
+        let (tx, rx) = mpsc::unbounded_channel::<InternalMessage>();
+
+        self.downloaded_files.lock().unwrap().insert(file_id, tx);
+
+        tokio::task::spawn(file_downloader(rx, file_name, file_size, loading_bar));
+
+        self.send(Message::Internal(InternalMessage::FileRequest(file_id)));
     }
 
     pub fn handle_event(&mut self, key: KeyEvent, _current_screen: &mut AppPosition) -> bool {
         if self.messages.is_selected() {
+            // Currently listing conversation.
             match key {
                 key if key.code == KeyCode::Esc => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
@@ -104,11 +124,32 @@ impl PeerState<'_> {
                 },
                 key if key.code == KeyCode::Enter => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
+                        let message_bubble = self.messages.get_selected().unwrap();
+
+                        match &message_bubble.message {
+                            UserMessage::Text(text) => {
+                                ClipboardContext::new().unwrap().set_contents(text.clone()).unwrap();
+                            },
+                            UserMessage::FileHeader(file_name, file_size, file_id) => {
+                                if message_bubble.loading_bar.is_none() {
+                                    let loading_bar = Arc::new(Mutex::new(LoadingBar { position: 0, end: 0, changed: true }));
+                                    message_bubble.loading_bar = Some(loading_bar.clone());
+
+                                    // Copy fist to allow for mut borrow of self - droping message_bubble.
+                                    let file_name = file_name.clone();
+                                    let file_size = *file_size;
+                                    let file_id = *file_id;
+
+                                    self.download_file(file_id, file_name, file_size, loading_bar);
+                                }
+                            },
+                        }
                     }
                 }
                 _ => {},
             }
         } else {
+            // Currently editing next msg.
             match key {
                 key if key.code == KeyCode::Esc => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
@@ -120,15 +161,44 @@ impl PeerState<'_> {
                         self.messages.go_down();    // First select is little diffrent.
                     }
                 },
+                key if key.code == KeyCode::Tab => {
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        self.editor_mode = match self.editor_mode {
+                            EditorMode::Text => EditorMode::File,
+                            EditorMode::File => EditorMode::Text,
+                        }
+                    }
+                },
                 key if key.code == KeyCode::Enter => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
-                        let msg = Message::User(
-                            UserMessage::Text(self.editor.lines().join("\n")),
-                        );
+                        match self.editor_mode {
+                            EditorMode::Text => {
+                                let msg = Message::User(
+                                    UserMessage::Text(self.editor.lines().join("\n")),
+                                );
 
-                        self.editor = TextArea::default();
+                                self.editor = TextArea::default();
 
-                        self.send(msg);
+                                self.send(msg);
+                            },
+                            EditorMode::File => {
+                                let file_path = PathBuf::from(&self.editor.lines()[0]);
+                                let file_id: u64 = rand::thread_rng().gen();
+
+                                if std::fs::metadata(&file_path).map(|metadata| metadata.is_file()).unwrap_or(false) {
+                                    let file_name: String = file_path.file_name().unwrap().to_string_lossy().to_string();
+                                    let file_size: u64 = std::fs::metadata(&file_path).map(|metadata| metadata.len()).unwrap_or(0);
+
+                                    self.owned_files.lock().unwrap().insert(file_id, file_path);
+
+                                    self.editor = TextArea::default();
+
+                                    self.send(Message::User(
+                                        UserMessage::FileHeader(file_name, file_size, file_id)
+                                    ));
+                                }
+                            }
+                        }
                     }
                 }
                 editor_input => {
@@ -136,7 +206,7 @@ impl PeerState<'_> {
                 },
             }
         }
-        
+
         false
     }
 }
@@ -166,6 +236,7 @@ impl From<ConnectionData> for PeerState<'_> {
 
             messages: ListComponent::new(ListBegin::Bottom, ListTop::Last),
             editor: TextArea::default(),
+            editor_mode: EditorMode::Text,
             downloaded_files,
             owned_files,
             conversation_buffer,
@@ -217,9 +288,16 @@ async fn file_downloader(
     mut packets: mpsc::UnboundedReceiver<InternalMessage>,
     file_name: String,
     file_size: u64, 
+    loading_bar: Arc<Mutex<LoadingBar>>,
 ) {
     let mut file_path = DOWNLOAD_PATH.clone();
     file_path.push(&file_name);
+
+    *loading_bar.lock().unwrap() = LoadingBar {
+        position: 0,
+        end: file_size,
+        changed: true,
+    };
 
     // If files [name, name (1), ..., name (9)] exists in download dir, abandon download.
     'main: for i in 0..10 {
@@ -248,6 +326,8 @@ async fn file_downloader(
                     }
 
                     byte_cnt += bytes.len() as u64;
+
+                    loading_bar.lock().unwrap().position = byte_cnt;
 
                     if file.write_all(&bytes).await.is_err() {
                         break 'main;
@@ -355,7 +435,10 @@ impl PeerState<'_> {
     fn render_edit(&mut self, block: &mut Rect, buf: &mut Buffer, is_active: bool) {
         self.editor.set_block(
             Block::default()
-                .title("Editor")
+                .title(match self.editor_mode {
+                    EditorMode::Text => "Enter msg:",
+                    EditorMode::File => "Enter file path:",
+                })
                 .borders(Borders::ALL)
                 .border_style(if is_active {
                     Style::default().fg(Color::Green)

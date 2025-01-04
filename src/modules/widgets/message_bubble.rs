@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::Mutex;
 use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -20,9 +22,9 @@ pub struct LoadingBar {
 }
 
 pub struct MsgBubble {
-    sender: String,
-    message: UserMessage,
-    loading_bar: Option<LoadingBar>,    // Used for file downloading.
+    pub sender: String,
+    pub message: UserMessage,
+    pub loading_bar: Option<Arc<Mutex<LoadingBar>>>,    // Used for file downloading.
     allignment: MsgBubbleAllignment,
     render_cache: Option<ListCache>,
 }
@@ -46,7 +48,7 @@ impl MsgBubble {
 
 impl ListItem for MsgBubble {
     fn get_cache(&mut self) -> &mut Option<ListCache> {
-        if self.loading_bar.as_ref().is_some_and(|lb| lb.changed) {
+        if self.loading_bar.as_ref().is_some_and(|lb| lb.lock().unwrap().changed) {
             self.render_cache = None;
         }
 
@@ -55,7 +57,7 @@ impl ListItem for MsgBubble {
 
     fn prerender(&mut self, window_max_width: u16, selected: bool) {
         if let Some(loading_bar) = self.loading_bar.as_mut() {
-            loading_bar.changed = false;
+            loading_bar.lock().unwrap().changed = false;
         }
 
         let style = if selected {
@@ -108,7 +110,7 @@ impl ListItem for MsgBubble {
 
 fn bubble_content(
     msg: &UserMessage,
-    loading_bar: &Option<LoadingBar>,
+    loading_bar: &Option<Arc<Mutex<LoadingBar>>>,
     window_max_width: u16,
     bubble_width: &mut usize
 ) -> Vec<String> {
@@ -135,10 +137,12 @@ fn bubble_content(
             let mut line = "FILE ".to_string() + &size +  " " + name;
 
             if let Some(loading_bar) = loading_bar {
-                line = line + " " + format_size(loading_bar.position, DECIMAL).as_str() + "/" + &format_size(loading_bar.end, DECIMAL);
+                let locked_loading_bar = loading_bar.lock().unwrap();
+                line = line + " " + format_size(locked_loading_bar.position, DECIMAL).as_str() + "/" + &format_size(locked_loading_bar.end, DECIMAL);
             }
 
             let line_width = (UnicodeWidthStr::width(line.as_str())).min(window_max_width as usize - 4).max(*bubble_width - 4);
+            *bubble_width = line_width as usize + 4;
         
             vec!["│ ".to_string() + format!("{: <width$}", line, width = line_width).as_str() + " │"]
         }
