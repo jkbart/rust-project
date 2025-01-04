@@ -19,8 +19,8 @@ use ratatui::text::Line;
 use tokio::io::AsyncWriteExt;
 use unicode_width::UnicodeWidthStr;
 
-use super::{networking::*, protocol::*};
 use crate::config::*;
+use crate::modules::{networking::*, protocol::*};
 
 use cli_log::*;
 use std::net::SocketAddr;
@@ -45,21 +45,23 @@ pub enum EditorMode {
 type DownloadedFilesMap = Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<InternalMessage>>>>;
 type OwnedFilesMap = Arc<Mutex<HashMap<u64, PathBuf>>>;
 
+/// Struct for messages to be displayed with context.
 pub struct MessageContext {
     pub was_received: bool, // Whether it was sent or received.
     pub message: UserMessage,
 }
 
+/// Main struct holding all information about connected peer.
 pub struct PeerState<'a> {
-    pub name: String,
-    pub addr: SocketAddr,
-    render_cache: Option<ListCache<'a>>,
-
-    pub messages: ListComponent<'a, MsgBubble<'a>>,
-    pub editor: TextArea<'a>,
-    pub editor_mode: EditorMode,
-    downloaded_files: DownloadedFilesMap,
-    owned_files: OwnedFilesMap,
+    pub name: String,                               // Name of connected peer
+    pub addr: SocketAddr,                           // Addres of connected peer
+    render_cache: Option<ListCache<'a>>,            // Cache for UI rendering
+    is_connected: bool,                             // If peer is connected.
+    pub messages: ListComponent<'a, MsgBubble<'a>>, // List of user messages exchanged
+    pub editor: TextArea<'a>,                       // Editor element
+    pub editor_mode: EditorMode,                    // If entering file or text
+    downloaded_files: DownloadedFilesMap,           // Files currently being downloaded
+    owned_files: OwnedFilesMap,                     // Files shared with user.
     conversation_buffer: Arc<Mutex<Vec<MessageContext>>>,
     message_writer_queue: mpsc::UnboundedSender<Message>,
     message_writer_handle: JoinHandle<Result<(), StreamSerializerError>>,
@@ -71,6 +73,7 @@ impl PeerState<'_> {
         !self.message_writer_handle.is_finished() && !self.message_reader_handle.is_finished()
     }
 
+    // Merge buffored msgs for rendering.
     pub fn update(&mut self) {
         let mut msg_buffer = self.conversation_buffer.lock().unwrap();
         self.messages.list.extend(msg_buffer.drain(..).map(|mc| {
@@ -134,10 +137,9 @@ impl PeerState<'_> {
 
                         match &message_bubble.message {
                             UserMessage::Text(text) => {
-                                ClipboardContext::new()
-                                    .unwrap()
-                                    .set_contents(text.clone())
-                                    .unwrap();
+                                if let Ok(mut clipboard) = ClipboardContext::new() {
+                                    let _ = clipboard.set_contents(text.clone());
+                                }
                             }
                             UserMessage::FileHeader(file_name, file_size, file_id) => {
                                 if message_bubble.received_from.is_some()
@@ -150,7 +152,7 @@ impl PeerState<'_> {
                                     }));
                                     message_bubble.loading_bar = Some(loading_bar.clone());
 
-                                    // Copy fist to allow for mut borrow of self - droping message_bubble.
+                                    // Copy fist to allow for mut borrow of self in self.download_file call - droping message_bubble refs.
                                     let file_name = file_name.clone();
                                     let file_size = *file_size;
                                     let file_id = *file_id;
@@ -173,7 +175,7 @@ impl PeerState<'_> {
                 }
                 key if key.code == KeyCode::Up => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
-                        self.messages.go_down(); // First select is little diffrent.
+                        self.messages.go_down(); // First entry to conversation is little diffrent - go_down on up key.
                     }
                 }
                 key if key.code == KeyCode::Tab => {
@@ -184,7 +186,7 @@ impl PeerState<'_> {
                         }
                     }
                 }
-                key if key.code == KeyCode::Enter => {
+                key if key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         match self.editor_mode {
                             EditorMode::Text => {
@@ -207,7 +209,7 @@ impl PeerState<'_> {
                                     let file_name: String = file_path
                                         .file_name()
                                         .unwrap()
-                                        .to_string_lossy()
+                                        .to_string_lossy() // Maybe this could be improved.
                                         .to_string();
                                     let file_size: u64 = std::fs::metadata(&file_path)
                                         .map(|metadata| metadata.len())
@@ -245,6 +247,7 @@ impl PeerState<'_> {
     }
 }
 
+// Create new peer state from incoming connection
 impl From<ConnectionData> for PeerState<'_> {
     fn from(connection_data: ConnectionData) -> Self {
         let conversation_buffer: Arc<Mutex<Vec<MessageContext>>> = Arc::new(Vec::new().into());
@@ -262,6 +265,7 @@ impl From<ConnectionData> for PeerState<'_> {
             downloaded_files.clone(),
             owned_files.clone(),
         ));
+
         let message_writer_handle = tokio::task::spawn(message_writer(
             tx_stream,
             conversation_buffer.clone(),
@@ -272,7 +276,7 @@ impl From<ConnectionData> for PeerState<'_> {
             name: connection_data.peer_name,
             addr: connection_data.peer_address,
             render_cache: None,
-
+            is_connected: true,
             messages: ListComponent::new(ListBegin::Bottom, ListTop::Last),
             editor: TextArea::default(),
             editor_mode: EditorMode::Text,
@@ -286,6 +290,7 @@ impl From<ConnectionData> for PeerState<'_> {
     }
 }
 
+// Function responsible for reading incoming msgs in the background.
 async fn message_reader(
     mut stream: tokio::net::tcp::OwnedReadHalf,
     tx_message: mpsc::UnboundedSender<Message>,
@@ -323,6 +328,33 @@ async fn message_reader(
     }
 }
 
+// Function responsible for sending msgs in the background.
+async fn message_writer(
+    mut stream: tokio::net::tcp::OwnedWriteHalf,
+    msgs: Arc<Mutex<Vec<MessageContext>>>,
+    mut msg_queue: mpsc::UnboundedReceiver<Message>,
+) -> Result<(), StreamSerializerError> {
+    loop {
+        match msg_queue.recv().await {
+            Some(message) => {
+                message.send(&mut stream).await?;
+                info!("Message sended via tcp!");
+
+                if let Message::User(message) = message {
+                    msgs.lock().unwrap().push(MessageContext {
+                        was_received: false,
+                        message,
+                    });
+                }
+            }
+            None => {
+                break Ok(());
+            }
+        }
+    }
+}
+
+// Function responsible for downloading given file in the background.
 async fn file_downloader(
     mut packets: mpsc::UnboundedReceiver<InternalMessage>,
     file_name: String,
@@ -365,7 +397,7 @@ async fn file_downloader(
 
                 byte_cnt += bytes.len() as u64;
 
-                // For some reason writing drop explicitly doenst work. Have to use {} instead.
+                // For some reason writing drop explicitly doesnt work. Have to use {} instead.
                 {
                     let mut loading_bar_lock = loading_bar.lock().unwrap();
 
@@ -381,6 +413,7 @@ async fn file_downloader(
     }
 }
 
+// Function responsible for uploading given file in the background.
 async fn file_uploader(
     packets: mpsc::UnboundedSender<Message>,
     file_name: PathBuf,
@@ -415,36 +448,12 @@ async fn file_uploader(
     Ok(())
 }
 
-async fn message_writer(
-    mut stream: tokio::net::tcp::OwnedWriteHalf,
-    msgs: Arc<Mutex<Vec<MessageContext>>>,
-    mut msg_queue: mpsc::UnboundedReceiver<Message>,
-) -> Result<(), StreamSerializerError> {
-    loop {
-        match msg_queue.recv().await {
-            Some(message) => {
-                message.send(&mut stream).await?;
-                info!("Message sended via tcp!");
-
-                if let Message::User(message) = message {
-                    msgs.lock().unwrap().push(MessageContext {
-                        was_received: false,
-                        message,
-                    });
-                }
-            }
-            None => {
-                break Ok(());
-            }
-        }
-    }
-}
-
+// Implentation of rendering functions.
 impl PeerState<'_> {
     pub fn render(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
         // Devide conversation to include editor box.
         let [mut conv_block, mut edit_block] =
-            Layout::vertical([Constraint::Min(3), Constraint::Length(3)]).areas(*rect);
+            Layout::vertical([Constraint::Percentage(70), Constraint::Percentage(30)]).areas(*rect);
 
         self.render_conv(
             &mut conv_block,
@@ -506,6 +515,11 @@ impl PeerState<'_> {
 
 impl<'a> ListItem<'a> for PeerState<'a> {
     fn get_cache(&mut self) -> &mut Option<ListCache<'a>> {
+        if self.is_connected != self.is_active() {
+            self.is_connected = self.is_active();
+            self.render_cache = None;
+        }
+
         &mut self.render_cache
     }
 
@@ -525,11 +539,18 @@ impl<'a> ListItem<'a> for PeerState<'a> {
             width = window_max_width as usize - 2
         );
 
+        let fg_color = if self.is_connected {
+            Color::LightGreen
+        } else {
+            Color::LightRed
+        };
+
         let style = if selected {
-            Style::default().bg(Color::DarkGray) // Change background color to Yellow if selected
+            Style::default().bg(Color::DarkGray)
         } else {
             Style::default()
-        };
+        }
+        .fg(fg_color);
 
         let top_bar = "┌".to_string() + &"─".repeat(window_max_width as usize - 2) + "┐";
         let middle_bar = "│".to_string() + &middle_name + "│";

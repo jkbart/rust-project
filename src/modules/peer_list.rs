@@ -8,7 +8,7 @@ use ratatui::widgets::Borders;
 use ratatui::widgets::Widget;
 use ratatui::{buffer::Buffer, widgets::Block};
 
-use super::{networking::*, protocol::*};
+use crate::modules::{networking::*, protocol::*};
 use cli_log::*;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
@@ -49,6 +49,7 @@ impl<'a> PeerList<'a> {
         }
     }
 
+    // Merge buffored peers.
     pub fn update(&mut self) {
         let mut peer_buffer = self.peer_buffer.lock().unwrap();
 
@@ -114,6 +115,7 @@ impl<'a> PeerList<'a> {
     }
 }
 
+// Function responsible for receving new users in the background.
 pub async fn peer_list_updator(
     peers: Arc<Mutex<Vec<ConnectionData>>>,
     mut peer_queue: mpsc::UnboundedReceiver<ConnectionData>,

@@ -5,11 +5,13 @@ use ratatui::prelude::Buffer;
 use ratatui::prelude::Rect;
 use ratatui::text::Line;
 
+// Wheter we should render top lines or bottom lines first if whole item doesnt fit.
 pub enum RenderingTop {
     Top,
     Bottom,
 }
 
+// Rendering cache for items.
 pub struct ListCache<'a> {
     cache: Vec<Line<'a>>,
     width: u16,
@@ -28,6 +30,7 @@ impl<'a> ListCache<'a> {
     }
 }
 
+// Item for ListComponent
 pub trait ListItem<'a> {
     fn get_cache(&mut self) -> &mut Option<ListCache<'a>>;
     fn prerender(&mut self, window_max_width: u16, selected: bool);
@@ -87,11 +90,17 @@ pub trait ListItem<'a> {
     }
 }
 
+// If first item is rendered from Top or Bottom.
+// Top is used for peer list.
+// Bottom is used for msgs.
 pub enum ListBegin {
     Top,
     Bottom,
 }
 
+// If at top of list is last or first msg in buffor vector.
+// First is used for peer list.
+// Last is used for msgs.
 pub enum ListTop {
     First,
     Last,
@@ -101,7 +110,8 @@ struct Scroll {
     begining: ListBegin,
     top: ListTop,
     selected_msg: Option<u16>,
-    top_visisted: Option<(u16, u16)>, // Simpler offset, makes implementing scrolling easier.
+    // Used as offset variable.
+    top_visisted: Option<(u16, u16)>, // Top msg, number of lines skipped in top msg.
 }
 
 pub struct ListComponent<'a, Item: ListItem<'a>> {
@@ -210,7 +220,8 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
 
         let mut items: VecDeque<(u16, u16)> = VecDeque::new(); // Index of item, number of lines rendered
 
-        // Calculating offset of list item rendering. Could be improved.
+        // Calculating offset of list item rendering. Could be probably shorter.
+        // Right now those loop use combination of -/.rev() and .push_front()/.push_back() that why its not easier to extract it to common function.
         match (self.scroll.selected_msg, self.scroll.top_visisted) {
             (Some(selected_msg), Some(top_visisted)) => {
                 trace!("sel:{} top:{:?}", selected_msg, top_visisted);

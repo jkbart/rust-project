@@ -64,15 +64,17 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
         }
 
         let style = if selected {
-            Style::default().bg(Color::Yellow) // Change background color to Yellow if selected
+            Style::default().bg(Color::DarkGray) // Change background color to Yellow if selected
         } else {
             Style::default()
         };
 
         let sender = self.received_from.as_deref().unwrap_or("You");
 
+        // Length of name
         let name_length = UnicodeWidthStr::width(sender).min(window_max_width as usize - 2);
 
+        // Total length of bubble. Will be only increased.
         let mut bubble_width = (name_length + 2).min(window_max_width as usize);
 
         let mut middle_lines = bubble_content(
@@ -81,8 +83,6 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
             window_max_width,
             &mut bubble_width,
         ); // Needs to be called before top_name calculations.
-
-        let mut raw_lines = Vec::<String>::new();
 
         let top_name: String = match self.allignment {
             MsgBubbleAllignment::Left => format!(
@@ -97,6 +97,8 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
             ),
         };
 
+        let mut raw_lines = Vec::<String>::new();
+
         raw_lines.push("┌".to_string() + &top_name + "┐");
         raw_lines.append(&mut middle_lines);
         raw_lines.push("└".to_string() + &"─".repeat(bubble_width - 2) + "┘");
@@ -105,6 +107,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
             .into_iter()
             .map(|line| {
                 Line::from(Span::styled(
+                    // Push bubble to left or right.
                     match self.allignment {
                         MsgBubbleAllignment::Left => {
                             line + &" ".repeat(window_max_width as usize - bubble_width)
@@ -145,6 +148,7 @@ fn bubble_content(
                 lines.push(std::borrow::Cow::Borrowed(" "));
             }
 
+            // Minimum of 4 columns required for "│ " + " │"
             *bubble_width = (*bubble_width).max(4);
             let max_line_width = lines
                 .iter()
@@ -152,6 +156,8 @@ fn bubble_content(
                 .max()
                 .unwrap_or(0)
                 .max(*bubble_width as u16 - 4);
+
+            // Add "│ " + line + " │"
             *bubble_width = max_line_width as usize + 4;
 
             lines
@@ -169,6 +175,7 @@ fn bubble_content(
 
             let mut line = "FILE ".to_string() + &size + " " + name;
 
+            // Calculate loading bar string based on progress.
             if let Some(loading_bar) = loading_bar {
                 let locked_loading_bar = loading_bar.lock().unwrap();
                 line = line
@@ -178,9 +185,13 @@ fn bubble_content(
                     + &format_size(locked_loading_bar.end, DECIMAL);
             }
 
+            // Minimum of 4 columns required for "│ " + " │"
+            *bubble_width = (*bubble_width).max(4);
             let line_width = (UnicodeWidthStr::width(line.as_str()))
                 .min(window_max_width as usize - 4)
                 .max(*bubble_width - 4);
+
+            // Add "│ " + line + " │"
             *bubble_width = line_width as usize + 4;
 
             vec![
