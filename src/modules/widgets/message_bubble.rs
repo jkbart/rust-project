@@ -22,7 +22,7 @@ pub struct LoadingBar {
 }
 
 pub struct MsgBubble {
-    pub sender: String,
+    pub received_from: Option<String>,
     pub message: UserMessage,
     pub loading_bar: Option<Arc<Mutex<LoadingBar>>>,    // Used for file downloading.
     allignment: MsgBubbleAllignment,
@@ -32,12 +32,12 @@ pub struct MsgBubble {
 
 impl MsgBubble {
     pub fn new(
-        sender: String,
+        received_from: Option<String>,
         message: UserMessage,
         allignment: MsgBubbleAllignment
     ) -> Self {
         MsgBubble {
-            sender,
+            received_from,
             message,
             loading_bar: None,
             allignment,
@@ -66,7 +66,9 @@ impl ListItem for MsgBubble {
             Style::default()
         };
 
-        let name_length = UnicodeWidthStr::width(self.sender.as_str()).min(window_max_width as usize - 2);
+        let sender = self.received_from.as_deref().unwrap_or(&"You");
+
+        let name_length = UnicodeWidthStr::width(sender).min(window_max_width as usize - 2);
 
         let mut bubble_width = (name_length + 2).min(window_max_width as usize);
 
@@ -75,8 +77,8 @@ impl ListItem for MsgBubble {
         let mut raw_lines = Vec::<String>::new();
 
         let top_name: String =  match self.allignment {
-            MsgBubbleAllignment::Left  => format!("{:─<width$}", &self.sender[..name_length], width = bubble_width as usize - 2),
-            MsgBubbleAllignment::Right => format!("{:─>width$}", &self.sender[..name_length], width = bubble_width as usize - 2),
+            MsgBubbleAllignment::Left  => format!("{:─<width$}", &sender[..name_length], width = bubble_width as usize - 2),
+            MsgBubbleAllignment::Right => format!("{:─>width$}", &sender[..name_length], width = bubble_width as usize - 2),
         };
 
         raw_lines.push("┌".to_string() + &top_name +                              "┐");

@@ -1,3 +1,4 @@
+use crossterm::event::KeyModifiers;
 use rand::Rng;
 use tokio::io::AsyncReadExt;
 use std::collections::HashMap;
@@ -75,8 +76,8 @@ impl PeerState<'_> {
         self.messages.list.extend(msg_buffer.drain(..).map(|mc| {
             MsgBubble::new(
                 match mc.was_received {
-                    true => self.name.clone(),
-                    false => "You".to_string(),
+                    true => Some(self.name.clone()),
+                    false => None,
                 },
                 mc.message,
                 match mc.was_received {
@@ -131,7 +132,7 @@ impl PeerState<'_> {
                                 ClipboardContext::new().unwrap().set_contents(text.clone()).unwrap();
                             },
                             UserMessage::FileHeader(file_name, file_size, file_id) => {
-                                if message_bubble.loading_bar.is_none() {
+                                if message_bubble.received_from.is_none() && message_bubble.loading_bar.is_some() {
                                     let loading_bar = Arc::new(Mutex::new(LoadingBar { position: 0, end: 0, changed: true }));
                                     message_bubble.loading_bar = Some(loading_bar.clone());
 
@@ -201,6 +202,9 @@ impl PeerState<'_> {
                         }
                     }
                 }
+                key if key.code == KeyCode::Char('v') && key.modifiers == KeyModifiers::CONTROL => {
+                    self.editor.insert_str(ClipboardContext::new().unwrap().get_contents().unwrap());
+                },
                 editor_input => {
                     self.editor.input(editor_input);
                 },
@@ -327,7 +331,13 @@ async fn file_downloader(
 
                     byte_cnt += bytes.len() as u64;
 
-                    loading_bar.lock().unwrap().position = byte_cnt;
+                    // For some reason writing drop explicitly doenst work. Have to use {} instead.
+                    {
+                        let mut loading_bar_lock = loading_bar.lock().unwrap();
+
+                        loading_bar_lock.position = byte_cnt;
+                        loading_bar_lock.changed = true;
+                    }
 
                     if file.write_all(&bytes).await.is_err() {
                         break 'main;
