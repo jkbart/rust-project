@@ -23,6 +23,12 @@ pub struct App<'a> {
     events: EventHandler,
 }
 
+impl Default for App<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl App<'_> {
     pub fn new() -> Self {
         App {
@@ -59,7 +65,7 @@ impl App<'_> {
                         } else {
                             self.current_screen = AppPosition::PeerList;
                         }
-                    },
+                    }
                 }
             }
 

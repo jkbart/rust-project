@@ -6,19 +6,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::UNIQUE_BYTES;
 
-
 /// Struct with content of user message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum UserMessage {
     Text(String),
-    FileHeader(String, u64, u64),      // Filename, filesize, file-id
+    FileHeader(String, u64, u64), // Filename, filesize, file-id
 }
 
 /// Struct with content of internal message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InternalMessage {
-    FileRequest(u64),                  // File-id
-    FileContent(u64, u64, Vec<u8>),    // File-id, first byte idx, bytes
+    FileRequest(u64),               // File-id
+    FileContent(u64, u64, Vec<u8>), // File-id, first byte idx, bytes
 }
 
 /// Main message structure.
@@ -27,7 +26,6 @@ pub enum Message {
     User(UserMessage),
     Internal(InternalMessage),
 }
-
 
 /// Struct that by being broadcasted annouces user presence.
 /// Should not be sent as plain serialization in order to avoid misdetections.

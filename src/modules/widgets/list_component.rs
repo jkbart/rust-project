@@ -1,9 +1,9 @@
 use cli_log::*;
 use std::collections::VecDeque;
 
-use ratatui::text::Line;
-use ratatui::prelude::Rect;
 use ratatui::prelude::Buffer;
+use ratatui::prelude::Rect;
+use ratatui::text::Line;
 
 pub enum RenderingTop {
     Top,
@@ -18,12 +18,7 @@ pub struct ListCache<'a> {
 }
 
 impl<'a> ListCache<'a> {
-    pub fn new(
-        cache: Vec<Line<'a>>,
-        width: u16,
-        height: u16,
-        selected: bool,
-    ) -> Self {
+    pub fn new(cache: Vec<Line<'a>>, width: u16, height: u16, selected: bool) -> Self {
         Self {
             cache,
             width,
@@ -58,14 +53,27 @@ pub trait ListItem<'a> {
 
         match top {
             RenderingTop::Top => {
-                for (idx, line) in self.get_cache().as_ref().unwrap().cache.iter().rev().enumerate() {
+                for (idx, line) in self
+                    .get_cache()
+                    .as_ref()
+                    .unwrap()
+                    .cache
+                    .iter()
+                    .rev()
+                    .enumerate()
+                {
                     if idx as u16 >= rect.height {
                         break;
                     }
 
-                    buff.set_line(rect.x, rect.y + rect.height - 1 - idx as u16, line, rect.width);
+                    buff.set_line(
+                        rect.x,
+                        rect.y + rect.height - 1 - idx as u16,
+                        line,
+                        rect.width,
+                    );
                 }
-            },
+            }
             RenderingTop::Bottom => {
                 for (idx, line) in self.get_cache().as_ref().unwrap().cache.iter().enumerate() {
                     if idx as u16 >= rect.height {
@@ -93,7 +101,7 @@ struct Scroll {
     begining: ListBegin,
     top: ListTop,
     selected_msg: Option<u16>,
-    top_visisted: Option<(u16, u16)>,     // Simpler offset, makes implementing scrolling easier.
+    top_visisted: Option<(u16, u16)>, // Simpler offset, makes implementing scrolling easier.
 }
 
 pub struct ListComponent<'a, Item: ListItem<'a>> {
@@ -112,14 +120,14 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                 selected_msg: None,
                 top_visisted: None,
             },
-            _phantom: std::marker::PhantomData::default(),
+            _phantom: std::marker::PhantomData,
         }
     }
 
     fn get_top_idx(&mut self) -> u16 {
         match self.scroll.top {
             ListTop::First => 0,
-            ListTop::Last => self.list.len() as u16 - 1
+            ListTop::Last => self.list.len() as u16 - 1,
         }
     }
 
@@ -144,7 +152,7 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
             return true;
         }
 
-        return false;
+        false
     }
 
     // Go up the list.
@@ -152,13 +160,13 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
         let Some(selected_msg) = &mut self.scroll.selected_msg else {
             return false;
         };
-        
+
         if *selected_msg > 0 {
             *selected_msg -= 1;
             return true;
         }
 
-        return false;
+        false
     }
 
     pub fn reset(&mut self) {
@@ -176,7 +184,9 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
     }
 
     pub fn get_selected(&mut self) -> Option<&mut Item> {
-        self.scroll.selected_msg.map(|idx| &mut self.list[idx as usize])
+        self.scroll
+            .selected_msg
+            .map(|idx| &mut self.list[idx as usize])
     }
 
     pub fn is_selected(&self) -> bool {
@@ -198,7 +208,7 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
     pub fn render(&mut self, rect: Rect, buff: &mut Buffer) {
         let mut height_sum: u16 = 0;
 
-        let mut items: VecDeque<(u16, u16)> = VecDeque::new();  // Index of item, number of lines rendered
+        let mut items: VecDeque<(u16, u16)> = VecDeque::new(); // Index of item, number of lines rendered
 
         // Calculating offset of list item rendering. Could be improved.
         match (self.scroll.selected_msg, self.scroll.top_visisted) {
@@ -213,14 +223,10 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                         self.list[i as usize].set_cache(rect.width, i == selected_msg);
                         let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
                         let used_lines = match i {
-                            x if x == top_visisted.0 && x != selected_msg => {
-                                lines_cnt
-                                    .min(lines_cnt.max(top_visisted.1) - top_visisted.1)
-                                    .min(rect.height - height_sum)
-                            }
-                            _ => {
-                                lines_cnt.min(rect.height - height_sum)
-                            }
+                            x if x == top_visisted.0 && x != selected_msg => lines_cnt
+                                .min(lines_cnt.max(top_visisted.1) - top_visisted.1)
+                                .min(rect.height - height_sum),
+                            _ => lines_cnt.min(rect.height - height_sum),
                         };
 
                         height_sum += used_lines;
@@ -234,7 +240,12 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                         }
 
                         self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                        let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
+                        let used_lines = self.list[i as usize]
+                            .get_cache()
+                            .as_ref()
+                            .unwrap()
+                            .height
+                            .min(rect.height - height_sum);
                         height_sum += used_lines;
                         items.push_back((i, used_lines));
                     }
@@ -246,7 +257,8 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                             }
 
                             self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                            let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
+                            let lines_cnt =
+                                self.list[i as usize].get_cache().as_ref().unwrap().height;
                             let used_lines = lines_cnt.min(rect.height - height_sum);
                             height_sum += used_lines;
                             items.push_front((i, used_lines));
@@ -263,14 +275,10 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                         self.list[i as usize].set_cache(rect.width, i == selected_msg);
                         let lines_cnt = self.list[i as usize].get_cache().as_ref().unwrap().height;
                         let used_lines = match i {
-                            x if x == top_visisted.0 && x != selected_msg => {
-                                lines_cnt
-                                    .min(lines_cnt.max(top_visisted.1) - top_visisted.1)
-                                    .min(rect.height - height_sum)
-                            }
-                            _ => {
-                                lines_cnt.min(rect.height - height_sum)
-                            }
+                            x if x == top_visisted.0 && x != selected_msg => lines_cnt
+                                .min(lines_cnt.max(top_visisted.1) - top_visisted.1)
+                                .min(rect.height - height_sum),
+                            _ => lines_cnt.min(rect.height - height_sum),
                         };
 
                         height_sum += used_lines;
@@ -285,7 +293,12 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                             }
 
                             self.list[i as usize].set_cache(rect.width, i == selected_msg);
-                            let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
+                            let used_lines = self.list[i as usize]
+                                .get_cache()
+                                .as_ref()
+                                .unwrap()
+                                .height
+                                .min(rect.height - height_sum);
                             height_sum += used_lines;
                             items.push_front((i, used_lines));
                         }
@@ -301,39 +314,47 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                         let used_lines = lines_cnt.min(rect.height - height_sum);
                         height_sum += used_lines;
                         items.push_back((i, used_lines));
-                        
+
                         self.scroll.top_visisted = Some((i, lines_cnt - used_lines));
                     }
                 }
             }
-            _ => {
-                match self.scroll.top {
-                    ListTop::First => {
-                        for i in 0..self.list.len() as u16 {
-                            if height_sum == rect.height {
-                                break;
-                            }
-
-                            self.list[i as usize].set_cache(rect.width, false);
-                            let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
-                            height_sum += used_lines;
-                            items.push_back((i, used_lines));
+            _ => match self.scroll.top {
+                ListTop::First => {
+                    for i in 0..self.list.len() as u16 {
+                        if height_sum == rect.height {
+                            break;
                         }
-                    }
-                    ListTop::Last => {
-                        for i in (0..self.list.len() as u16).rev() {
-                            if height_sum == rect.height {
-                                break;
-                            }
 
-                            self.list[i as usize].set_cache(rect.width, false);
-                            let used_lines = self.list[i as usize].get_cache().as_ref().unwrap().height.min(rect.height - height_sum);
-                            height_sum += used_lines;
-                            items.push_front((i, used_lines));
-                        }
+                        self.list[i as usize].set_cache(rect.width, false);
+                        let used_lines = self.list[i as usize]
+                            .get_cache()
+                            .as_ref()
+                            .unwrap()
+                            .height
+                            .min(rect.height - height_sum);
+                        height_sum += used_lines;
+                        items.push_back((i, used_lines));
                     }
                 }
-            }
+                ListTop::Last => {
+                    for i in (0..self.list.len() as u16).rev() {
+                        if height_sum == rect.height {
+                            break;
+                        }
+
+                        self.list[i as usize].set_cache(rect.width, false);
+                        let used_lines = self.list[i as usize]
+                            .get_cache()
+                            .as_ref()
+                            .unwrap()
+                            .height
+                            .min(rect.height - height_sum);
+                        height_sum += used_lines;
+                        items.push_front((i, used_lines));
+                    }
+                }
+            },
         }
 
         let items_iterator: Box<dyn Iterator<Item = &(u16, u16)>> = match self.scroll.top {
@@ -359,15 +380,25 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                 }
 
                 for height in height_sum..rect.height {
-                    buff.set_line(rect.x, rect.y + height, &Line::from(" ".repeat(rect.width.into())), rect.width);
+                    buff.set_line(
+                        rect.x,
+                        rect.y + height,
+                        &Line::from(" ".repeat(rect.width.into())),
+                        rect.width,
+                    );
                 }
-            },
+            }
             ListBegin::Bottom => {
                 let mut direction = RenderingTop::Bottom;
 
                 for item in items_iterator {
                     self.list[item.0 as usize].render(
-                        Rect::new(rect.x, rect.y + rect.height - height_sum - item.1, rect.width, item.1),
+                        Rect::new(
+                            rect.x,
+                            rect.y + rect.height - height_sum - item.1,
+                            rect.width,
+                            item.1,
+                        ),
                         buff,
                         self.scroll.selected_msg.is_some_and(|idx| idx == item.0),
                         direction,
@@ -377,7 +408,12 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
                 }
 
                 for height in height_sum..rect.height {
-                    buff.set_line(rect.x, rect.y + height - height_sum, &Line::from(" ".repeat(rect.width.into())), rect.width);
+                    buff.set_line(
+                        rect.x,
+                        rect.y + height - height_sum,
+                        &Line::from(" ".repeat(rect.width.into())),
+                        rect.width,
+                    );
                 }
             }
         }

@@ -17,6 +17,12 @@ pub struct EventHandler {
     _task: Option<JoinHandle<()>>,
 }
 
+impl Default for EventHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventHandler {
     pub fn new() -> Self {
         let tick_rate = std::time::Duration::from_millis(250);
@@ -33,18 +39,13 @@ impl EventHandler {
                 tokio::select! {
                   maybe_event = crossterm_event => {
                     match maybe_event {
-                      Some(Ok(evt)) => {
-                        match evt {
-                          crossterm::event::Event::Key(key) => {
-                              tx.send(Event::Key(key)).unwrap();
-                          },
-                          _ => {},
-                        }
+                      Some(Ok(crossterm::event::Event::Key(key))) => {
+                        tx.send(Event::Key(key)).unwrap();
                       }
                       Some(Err(_)) => {
                         tx.send(Event::Error).unwrap();
                       }
-                      None => {},
+                      _ => {},
                     }
                   },
                   _ = delay => {

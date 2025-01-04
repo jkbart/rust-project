@@ -6,10 +6,7 @@ use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Widget;
-use ratatui::{
-    buffer::Buffer,
-    widgets::Block,
-};
+use ratatui::{buffer::Buffer, widgets::Block};
 
 use super::{networking::*, protocol::*};
 use cli_log::*;
@@ -28,6 +25,12 @@ pub struct PeerList<'a> {
     pub peer_list: ListComponent<'a, PeerState<'a>>,
     peer_buffer: Arc<Mutex<Vec<ConnectionData>>>,
     _peer_updator: JoinHandle<Result<(), StreamSerializerError>>,
+}
+
+impl<'a> Default for PeerList<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> PeerList<'a> {
@@ -61,7 +64,7 @@ impl<'a> PeerList<'a> {
     pub fn handle_event(&mut self, key: KeyEvent, current_screen: &mut AppPosition) -> bool {
         if key.kind == crossterm::event::KeyEventKind::Press {
             match key.code {
-                KeyCode::Char('q') | KeyCode::Esc  => {
+                KeyCode::Char('q') | KeyCode::Esc => {
                     return true;
                 }
 
@@ -78,7 +81,7 @@ impl<'a> PeerList<'a> {
             }
         }
 
-        return false;
+        false
     }
 
     pub fn get_selected(&mut self) -> Option<&mut PeerState<'a>> {
@@ -103,7 +106,7 @@ impl<'a> PeerList<'a> {
                 });
 
             let content_area = block.inner(*rect);
-            
+
             Widget::render(block, *rect, buf);
 
             self.peer_list.render(content_area, buf);

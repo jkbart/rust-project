@@ -1,19 +1,19 @@
-use crossterm::event::KeyModifiers;
-use rand::Rng;
-use tokio::io::AsyncReadExt;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use ratatui::prelude::Layout;
-use ratatui::prelude::Constraint;
-use ratatui::prelude::Rect;
-use ratatui::prelude::Buffer;
-use ratatui::widgets::Block;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
+use crossterm::event::KeyModifiers;
+use rand::Rng;
+use ratatui::prelude::Buffer;
+use ratatui::prelude::Constraint;
+use ratatui::prelude::Layout;
+use ratatui::prelude::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::Span;
+use ratatui::widgets::Block;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Widget;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use tokio::io::AsyncReadExt;
 
 use ratatui::text::Line;
 use tokio::io::AsyncWriteExt;
@@ -27,9 +27,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
-use crate::modules::widgets::message_bubble::*;
-use crate::modules::widgets::list_component::*;
 use crate::modules::tui::AppPosition;
+use crate::modules::widgets::list_component::*;
+use crate::modules::widgets::message_bubble::*;
 
 use tokio::sync::mpsc;
 
@@ -83,7 +83,7 @@ impl PeerState<'_> {
                 match mc.was_received {
                     true => MsgBubbleAllignment::Left,
                     false => MsgBubbleAllignment::Right,
-                }
+                },
             )
         }));
     }
@@ -92,7 +92,13 @@ impl PeerState<'_> {
         let _ = self.message_writer_queue.send(msg);
     }
 
-    pub fn download_file(&self, file_id: u64, file_name: String, file_size: u64, loading_bar: Arc<Mutex<LoadingBar>>) {
+    pub fn download_file(
+        &self,
+        file_id: u64,
+        file_name: String,
+        file_size: u64,
+        loading_bar: Arc<Mutex<LoadingBar>>,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel::<InternalMessage>();
 
         self.downloaded_files.lock().unwrap().insert(file_id, tx);
@@ -110,30 +116,38 @@ impl PeerState<'_> {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         self.messages.reset();
                     }
-                },
+                }
                 key if key.code == KeyCode::Up => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         self.messages.go_up();
                     }
-                },
+                }
                 key if key.code == KeyCode::Down => {
-                    if key.kind == crossterm::event::KeyEventKind::Press {
-                        if !self.messages.go_down() {
-                            self.messages.reset();
-                        }
+                    if key.kind == crossterm::event::KeyEventKind::Press && !self.messages.go_down()
+                    {
+                        self.messages.reset();
                     }
-                },
+                }
                 key if key.code == KeyCode::Enter => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         let message_bubble = self.messages.get_selected().unwrap();
 
                         match &message_bubble.message {
                             UserMessage::Text(text) => {
-                                ClipboardContext::new().unwrap().set_contents(text.clone()).unwrap();
-                            },
+                                ClipboardContext::new()
+                                    .unwrap()
+                                    .set_contents(text.clone())
+                                    .unwrap();
+                            }
                             UserMessage::FileHeader(file_name, file_size, file_id) => {
-                                if message_bubble.received_from.is_some() && message_bubble.loading_bar.is_none() {
-                                    let loading_bar = Arc::new(Mutex::new(LoadingBar { position: 0, end: 0, changed: true }));
+                                if message_bubble.received_from.is_some()
+                                    && message_bubble.loading_bar.is_none()
+                                {
+                                    let loading_bar = Arc::new(Mutex::new(LoadingBar {
+                                        position: 0,
+                                        end: 0,
+                                        changed: true,
+                                    }));
                                     message_bubble.loading_bar = Some(loading_bar.clone());
 
                                     // Copy fist to allow for mut borrow of self - droping message_bubble.
@@ -143,11 +157,11 @@ impl PeerState<'_> {
 
                                     self.download_file(file_id, file_name, file_size, loading_bar);
                                 }
-                            },
+                            }
                         }
                     }
                 }
-                _ => {},
+                _ => {}
             }
         } else {
             // Currently editing next msg.
@@ -156,12 +170,12 @@ impl PeerState<'_> {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         return true;
                     }
-                },
+                }
                 key if key.code == KeyCode::Up => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
-                        self.messages.go_down();    // First select is little diffrent.
+                        self.messages.go_down(); // First select is little diffrent.
                     }
-                },
+                }
                 key if key.code == KeyCode::Tab => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         self.editor_mode = match self.editor_mode {
@@ -169,34 +183,43 @@ impl PeerState<'_> {
                             EditorMode::File => EditorMode::Text,
                         }
                     }
-                },
+                }
                 key if key.code == KeyCode::Enter => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
                         match self.editor_mode {
                             EditorMode::Text => {
-                                let msg = Message::User(
-                                    UserMessage::Text(self.editor.lines().join("\n")),
-                                );
+                                let msg = Message::User(UserMessage::Text(
+                                    self.editor.lines().join("\n"),
+                                ));
 
                                 self.editor = TextArea::default();
 
                                 self.send(msg);
-                            },
+                            }
                             EditorMode::File => {
                                 let file_path = PathBuf::from(&self.editor.lines()[0]);
                                 let file_id: u64 = rand::thread_rng().gen();
 
-                                if std::fs::metadata(&file_path).map(|metadata| metadata.is_file()).unwrap_or(false) {
-                                    let file_name: String = file_path.file_name().unwrap().to_string_lossy().to_string();
-                                    let file_size: u64 = std::fs::metadata(&file_path).map(|metadata| metadata.len()).unwrap_or(0);
+                                if std::fs::metadata(&file_path)
+                                    .map(|metadata| metadata.is_file())
+                                    .unwrap_or(false)
+                                {
+                                    let file_name: String = file_path
+                                        .file_name()
+                                        .unwrap()
+                                        .to_string_lossy()
+                                        .to_string();
+                                    let file_size: u64 = std::fs::metadata(&file_path)
+                                        .map(|metadata| metadata.len())
+                                        .unwrap_or(0);
 
                                     self.owned_files.lock().unwrap().insert(file_id, file_path);
 
                                     self.editor = TextArea::default();
 
-                                    self.send(Message::User(
-                                        UserMessage::FileHeader(file_name, file_size, file_id)
-                                    ));
+                                    self.send(Message::User(UserMessage::FileHeader(
+                                        file_name, file_size, file_id,
+                                    )));
                                 }
                             }
                         }
@@ -211,10 +234,10 @@ impl PeerState<'_> {
                             }
                         }
                     }
-                },
+                }
                 editor_input => {
                     self.editor.input(editor_input);
-                },
+                }
             }
         }
 
@@ -232,8 +255,13 @@ impl From<ConnectionData> for PeerState<'_> {
         let downloaded_files = Arc::new(Mutex::new(HashMap::new()));
         let owned_files = Arc::new(Mutex::new(HashMap::new()));
 
-        let message_reader_handle =
-            tokio::task::spawn(message_reader(rx_stream, tx_queue.clone(), conversation_buffer.clone(), downloaded_files.clone(), owned_files.clone()));
+        let message_reader_handle = tokio::task::spawn(message_reader(
+            rx_stream,
+            tx_queue.clone(),
+            conversation_buffer.clone(),
+            downloaded_files.clone(),
+            owned_files.clone(),
+        ));
         let message_writer_handle = tokio::task::spawn(message_writer(
             tx_stream,
             conversation_buffer.clone(),
@@ -274,20 +302,20 @@ async fn message_reader(
                     was_received: true,
                     message: user_message,
                 });
-            },
-            Message::Internal(internal_message) => {
-                match internal_message {
-                    InternalMessage::FileRequest(id) => {
-                        if let Some(file_path) = owned_files.lock().unwrap().get(&id) {
-                            tokio::task::spawn(
-                                file_uploader(tx_message.clone(), file_path.clone(), id)
-                            );
-                        }
+            }
+            Message::Internal(internal_message) => match internal_message {
+                InternalMessage::FileRequest(id) => {
+                    if let Some(file_path) = owned_files.lock().unwrap().get(&id) {
+                        tokio::task::spawn(file_uploader(
+                            tx_message.clone(),
+                            file_path.clone(),
+                            id,
+                        ));
                     }
-                    InternalMessage::FileContent(id, _, _) => {
-                        if let Some(tx) = downloaded_files.lock().unwrap().get(&id) {
-                            let _ = tx.send(internal_message);
-                        }
+                }
+                InternalMessage::FileContent(id, _, _) => {
+                    if let Some(tx) = downloaded_files.lock().unwrap().get(&id) {
+                        let _ = tx.send(internal_message);
                     }
                 }
             },
@@ -298,7 +326,7 @@ async fn message_reader(
 async fn file_downloader(
     mut packets: mpsc::UnboundedReceiver<InternalMessage>,
     file_name: String,
-    file_size: u64, 
+    file_size: u64,
     loading_bar: Arc<Mutex<LoadingBar>>,
 ) {
     let mut file_path = DOWNLOAD_PATH.clone();
@@ -316,7 +344,7 @@ async fn file_downloader(
             .create_new(true) // Ensures the file doesn't already exist
             .write(true)
             .open(&file_path)
-            .await 
+            .await
         {
             Ok(file) => file,
             Err(_) => {
@@ -330,27 +358,24 @@ async fn file_downloader(
         let mut byte_cnt = 0;
 
         while let Some(packet) = packets.recv().await {
-            match packet {
-                InternalMessage::FileContent(_, byte_idx, bytes) => {
-                    if byte_idx != byte_cnt || byte_idx + bytes.len() as u64 > file_size {
-                        break 'main;
-                    }
+            if let InternalMessage::FileContent(_, byte_idx, bytes) = packet {
+                if byte_idx != byte_cnt || byte_idx + bytes.len() as u64 > file_size {
+                    break 'main;
+                }
 
-                    byte_cnt += bytes.len() as u64;
+                byte_cnt += bytes.len() as u64;
 
-                    // For some reason writing drop explicitly doenst work. Have to use {} instead.
-                    {
-                        let mut loading_bar_lock = loading_bar.lock().unwrap();
+                // For some reason writing drop explicitly doenst work. Have to use {} instead.
+                {
+                    let mut loading_bar_lock = loading_bar.lock().unwrap();
 
-                        loading_bar_lock.position = byte_cnt;
-                        loading_bar_lock.changed = true;
-                    }
+                    loading_bar_lock.position = byte_cnt;
+                    loading_bar_lock.changed = true;
+                }
 
-                    if file.write_all(&bytes).await.is_err() {
-                        break 'main;
-                    }
-                },
-                _ => {},
+                if file.write_all(&bytes).await.is_err() {
+                    break 'main;
+                }
             }
         }
     }
@@ -359,7 +384,7 @@ async fn file_downloader(
 async fn file_uploader(
     packets: mpsc::UnboundedSender<Message>,
     file_name: PathBuf,
-    file_id: u64, 
+    file_id: u64,
 ) -> std::io::Result<()> {
     // Open the file in read-only mode
     let mut file = tokio::fs::File::open(file_name).await?;
@@ -382,7 +407,7 @@ async fn file_uploader(
         let message = Message::Internal(InternalMessage::FileContent(file_id, byte_idx, chunk));
         byte_idx += n as u64;
 
-        if let Err(_) = packets.send(message) {
+        if packets.send(message).is_err() {
             break;
         }
     }
@@ -401,16 +426,12 @@ async fn message_writer(
                 message.send(&mut stream).await?;
                 info!("Message sended via tcp!");
 
-                match message {
-                    Message::User(message) => {
-                        msgs.lock().unwrap().push(MessageContext {
-                            was_received: false,
-                            message,
-                        });
-                    },
-                    _ => {}
+                if let Message::User(message) = message {
+                    msgs.lock().unwrap().push(MessageContext {
+                        was_received: false,
+                        message,
+                    });
                 }
-
             }
             None => {
                 break Ok(());
@@ -423,11 +444,18 @@ impl PeerState<'_> {
     pub fn render(&mut self, rect: &mut Rect, buf: &mut Buffer, is_active: bool) {
         // Devide conversation to include editor box.
         let [mut conv_block, mut edit_block] =
-            Layout::vertical([Constraint::Min(3), Constraint::Length(3)])
-                .areas(*rect);
+            Layout::vertical([Constraint::Min(3), Constraint::Length(3)]).areas(*rect);
 
-        self.render_conv(&mut conv_block, buf, is_active && self.messages.is_selected());
-        self.render_edit(&mut edit_block, buf, is_active && !self.messages.is_selected());
+        self.render_conv(
+            &mut conv_block,
+            buf,
+            is_active && self.messages.is_selected(),
+        );
+        self.render_edit(
+            &mut edit_block,
+            buf,
+            is_active && !self.messages.is_selected(),
+        );
     }
 
     // Render conversation.
@@ -461,7 +489,7 @@ impl PeerState<'_> {
                     Style::default().fg(Color::Green)
                 } else {
                     Style::default()
-                })
+                }),
         );
 
         Widget::render(&self.editor, *block, buf);
@@ -476,17 +504,26 @@ impl PeerState<'_> {
     }
 }
 
-
 impl<'a> ListItem<'a> for PeerState<'a> {
     fn get_cache(&mut self) -> &mut Option<ListCache<'a>> {
         &mut self.render_cache
     }
 
     fn prerender(&mut self, window_max_width: u16, selected: bool) {
-        let bottom_address_length = UnicodeWidthStr::width(self.addr.to_string().as_str()).min(window_max_width as usize - 2);
-        let middle_name_length    = UnicodeWidthStr::width(self.name.as_str()).min(window_max_width as usize - 2);
-        let bottom_address: String = format!("{:─<width$}", &self.addr.to_string()[..bottom_address_length], width = window_max_width as usize - 2);
-        let middle_name:    String = format!("{: <width$}", &self.name[..middle_name_length], width = window_max_width as usize - 2);
+        let bottom_address_length = UnicodeWidthStr::width(self.addr.to_string().as_str())
+            .min(window_max_width as usize - 2);
+        let middle_name_length =
+            UnicodeWidthStr::width(self.name.as_str()).min(window_max_width as usize - 2);
+        let bottom_address: String = format!(
+            "{:─<width$}",
+            &self.addr.to_string()[..bottom_address_length],
+            width = window_max_width as usize - 2
+        );
+        let middle_name: String = format!(
+            "{: <width$}",
+            &self.name[..middle_name_length],
+            width = window_max_width as usize - 2
+        );
 
         let style = if selected {
             Style::default().bg(Color::DarkGray) // Change background color to Yellow if selected
@@ -494,9 +531,9 @@ impl<'a> ListItem<'a> for PeerState<'a> {
             Style::default()
         };
 
-        let top_bar    = "┌".to_string() + &"─".repeat(window_max_width as usize - 2) + "┐";
-        let middle_bar = "│".to_string() + &middle_name                               + "│";
-        let bottom_bar = "└".to_string() + &bottom_address                            + "┘";
+        let top_bar = "┌".to_string() + &"─".repeat(window_max_width as usize - 2) + "┐";
+        let middle_bar = "│".to_string() + &middle_name + "│";
+        let bottom_bar = "└".to_string() + &bottom_address + "┘";
 
         let top_bar = Span::styled(top_bar, style);
         let middle_bar = Span::styled(middle_bar, style);
@@ -508,11 +545,6 @@ impl<'a> ListItem<'a> for PeerState<'a> {
             Line::from(vec![bottom_bar]),
         ];
 
-        self.render_cache = Some(ListCache::new(
-            block_lines,
-            window_max_width,
-            3,
-            selected,
-        ));
+        self.render_cache = Some(ListCache::new(block_lines, window_max_width, 3, selected));
     }
 }
