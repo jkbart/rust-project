@@ -15,9 +15,9 @@ This project is implemented as part of the Rust course at the University of Wars
 - [x] **Messaging**: Allow users to send messages to other connected users.
 
 ### Iteration 2 (*2025-01-09*)
-- [ ] **File Transfer**: Enable file transfers between devices.
+- [x] **File Transfer**: Enable file transfers between devices.
 - [ ] **Connection Encryption**: Add encryption to secure connections.
-- [ ] **Improvement**: Enhance features from the first iteration.
+- [x] **Improvement**: Enhance features from the first iteration.
 
 ## Team Members
 - Jakub Bartecki
