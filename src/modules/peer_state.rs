@@ -132,7 +132,7 @@ impl PeerState<'_> {
                                 ClipboardContext::new().unwrap().set_contents(text.clone()).unwrap();
                             },
                             UserMessage::FileHeader(file_name, file_size, file_id) => {
-                                if message_bubble.received_from.is_none() && message_bubble.loading_bar.is_some() {
+                                if message_bubble.received_from.is_some() && message_bubble.loading_bar.is_none() {
                                     let loading_bar = Arc::new(Mutex::new(LoadingBar { position: 0, end: 0, changed: true }));
                                     message_bubble.loading_bar = Some(loading_bar.clone());
 
