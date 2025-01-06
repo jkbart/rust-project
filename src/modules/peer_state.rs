@@ -137,9 +137,7 @@ impl PeerState<'_> {
 
                         match &message_bubble.message {
                             UserMessage::Text(text) => {
-                                if let Ok(mut clipboard) = ClipboardContext::new() {
-                                    let _ = clipboard.set_contents(text.clone());
-                                }
+                                let _ = CLIPBOARD.lock().unwrap().set_contents(text.clone());
                             }
                             UserMessage::FileHeader(file_name, file_size, file_id) => {
                                 if message_bubble.received_from.is_some()
