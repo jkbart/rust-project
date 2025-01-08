@@ -36,7 +36,11 @@ async fn serialization_message_async_1() {
 
 #[tokio::test]
 async fn serialization_message_async_2() {
-    let original = Message::Internal(InternalMessage::FileContent(24857234, 0b10101, vec![42; 0b10101]));
+    let original = Message::Internal(InternalMessage::FileContent(
+        24857234,
+        0b10101,
+        vec![42; 0b10101],
+    ));
 
     let mut buf: Vec<u8> = Vec::new();
     let mut cursor = Cursor::new(&mut buf);

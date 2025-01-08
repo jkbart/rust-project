@@ -1,4 +1,4 @@
-// source: https://ratatui.rs/tutorials/counter-async-app/async-event-stream/
+// source (slightly modified): https://ratatui.rs/tutorials/counter-async-app/async-event-stream/
 use futures::{FutureExt, StreamExt};
 use ratatui::crossterm::event::KeyEvent;
 use tokio::{sync::mpsc, task::JoinHandle};

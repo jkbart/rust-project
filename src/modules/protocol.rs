@@ -10,6 +10,7 @@ pub type FileSize = u64;
 pub type FileID = u64;
 
 /// Struct with content of user message.
+/// This message type is the type that will be displayed.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum UserMessage {
     Text(String),
@@ -17,6 +18,7 @@ pub enum UserMessage {
 }
 
 /// Struct with content of internal message.
+/// This message type is the type that is exchanged in background.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum InternalMessage {
     FileRequest(FileID),                    // File-id

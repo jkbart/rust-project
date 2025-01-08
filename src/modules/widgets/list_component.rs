@@ -35,8 +35,11 @@ impl<'a> ListCache<'a> {
 // Item for ListComponent
 pub trait ListItem<'a> {
     fn get_cache(&mut self) -> &mut Option<ListCache<'a>>;
+
+    // Recalculate cache lines to fit given window width.
     fn prerender(&mut self, window_max_width: u16, selected: bool);
 
+    // Rerender cache if needed, after this function cache is not None.
     fn set_cache(&mut self, window_max_width: u16, selected: bool) {
         let mut valid_cache = true;
 
@@ -53,6 +56,7 @@ pub trait ListItem<'a> {
         }
     }
 
+    // Render item.
     fn render(&mut self, rect: Rect, buff: &mut Buffer, selected: bool, top: RenderingTop) {
         self.set_cache(rect.width, selected);
 
@@ -136,6 +140,7 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
         }
     }
 
+    // Get idx of msg that is first in list.
     fn get_top_idx(&mut self) -> u16 {
         match self.scroll.top {
             ListTop::First => 0,
@@ -223,7 +228,10 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
         let mut items: VecDeque<(u16, u16)> = VecDeque::new(); // Index of item, number of lines rendered
 
         // Calculating offset of list item rendering. Could be probably shorter.
+        // Total number of iterations is not bigger than number of displayed msgs.
         // Right now those loop use combination of -/.rev() and .push_front()/.push_back() that why its not easier to extract it to common function.
+
+        // Calculate items variable content.
         match (self.scroll.selected_msg, self.scroll.top_visisted) {
             (Some(selected_msg), Some(top_visisted)) => {
                 trace!("sel:{} top:{:?}", selected_msg, top_visisted);
@@ -377,6 +385,7 @@ impl<'a, Item: ListItem<'a>> ListComponent<'a, Item> {
 
         height_sum = 0;
 
+        // Render calculated items.
         match self.scroll.begining {
             ListBegin::Top => {
                 let mut direction = RenderingTop::Top;

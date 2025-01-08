@@ -23,6 +23,7 @@ pub struct LoadingBarStatus {
     pub end: FileSize,
 }
 
+// Loading bar is currently used to show progress of file download.
 #[derive(Debug)]
 pub enum LoadingBar {
     Status(LoadingBarStatus),
@@ -32,9 +33,10 @@ pub enum LoadingBar {
 #[derive(Debug)]
 pub struct LoadingBarWrap {
     pub loadingbar: LoadingBar,
-    pub changed: bool,
+    pub changed: bool, // For cache validation.
 }
 
+// If last operation ended and new can begin.
 pub fn is_loading_bar_free(ld: &Option<Arc<Mutex<LoadingBarWrap>>>) -> bool {
     match &ld {
         None => true,
@@ -45,6 +47,7 @@ pub fn is_loading_bar_free(ld: &Option<Arc<Mutex<LoadingBarWrap>>>) -> bool {
     }
 }
 
+// Struct containing displayable msgs together with cache.
 #[derive(Debug)]
 pub struct MsgBubble<'a> {
     pub received_from: Option<String>,
@@ -172,6 +175,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
 }
 
 impl<'a> MsgBubble<'a> {
+    // Calculate inside of bubble based on content.
     fn formatted_content(
         message: &UserMessage,
         loading_bar: &Option<Arc<Mutex<LoadingBarWrap>>>,

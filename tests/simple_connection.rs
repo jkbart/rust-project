@@ -1,18 +1,16 @@
-use tokio::io::AsyncWriteExt;
-use std::net::SocketAddr;
-use rust_project::modules::{networking::*, peer_state::PeerState, protocol::*};
 use rust_project::config::*;
+use rust_project::modules::{networking::*, peer_state::PeerState, protocol::*};
+use std::net::SocketAddr;
+use tokio::io::AsyncWriteExt;
 
 use std::time::Duration;
 
-use tokio::net::*;
 use tokio::fs;
-
+use tokio::net::*;
 
 use ntest::timeout;
 use tempfile::tempdir;
 // User detection is not possible to be easily tested, since connections from user with same id are ignored.
-
 
 async fn connect_to_port(addr: SocketAddr) -> TcpStream {
     TcpStream::connect(addr).await.unwrap()
@@ -65,7 +63,7 @@ async fn exchange_text() {
         [msg] => {
             assert_eq!(msg.message, example_user_msg);
         }
-        _ => panic!("Unexpected msg list length!")
+        _ => panic!("Unexpected msg list length!"),
     }
 }
 
@@ -87,7 +85,7 @@ async fn exchange_text_both_ways() {
         [msg] => {
             assert_eq!(msg.message, example_user_msg1);
         }
-        list => panic!("Unexpected msg list length! {:#?}", list)
+        list => panic!("Unexpected msg list length! {:#?}", list),
     }
 
     peer2.send(Message::User(example_user_msg2.clone()));
@@ -101,7 +99,7 @@ async fn exchange_text_both_ways() {
             assert_eq!(msg_self.message, example_user_msg1);
             assert_eq!(msg_other.message, example_user_msg2);
         }
-        list => panic!("Unexpected msg list length! {:#?}", list)
+        list => panic!("Unexpected msg list length! {:#?}", list),
     }
 }
 

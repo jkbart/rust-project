@@ -119,7 +119,7 @@ impl PeerState<'_> {
         self.send(Message::Internal(InternalMessage::FileRequest(file_id)));
     }
 
-    // Send file-msg containg this file if exists.
+    // Send file-msg containing this file if exists.
     pub fn upload_file(&mut self, file_path: PathBuf) {
         let file_id: FileID = rand::thread_rng().gen();
 
@@ -147,8 +147,11 @@ impl PeerState<'_> {
         }
     }
 
+    // Performs action operation (download, copy, ...) on selected msg.
     pub fn handle_action_on_msg(&mut self) {
-        let message_bubble = self.messages.get_selected().unwrap();
+        let Some(message_bubble) = self.messages.get_selected() else {
+            return;
+        };
 
         match &message_bubble.message {
             UserMessage::Text(text) => {
@@ -271,7 +274,7 @@ impl PeerState<'_> {
     }
 }
 
-// Create new peer state from incoming connection
+// Create new peer state from incoming connection.
 impl From<ConnectionData> for PeerState<'_> {
     fn from(connection_data: ConnectionData) -> Self {
         let conversation_buffer: Arc<Mutex<Vec<MessageContext>>> = Arc::new(Vec::new().into());
