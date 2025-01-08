@@ -594,7 +594,9 @@ impl<'a> ListItem<'a> for PeerState<'a> {
         &mut self.render_cache
     }
 
-    fn prerender(&mut self, window_max_width: u16, selected: bool) {
+    fn prerender(&mut self, window_max_width: u16, selected: bool) {        
+        let window_max_width = window_max_width.max(7); // On smaller windows this will cause to mess up visuals but will keep it from panicing.
+
         let bottom_address_length = UnicodeWidthStr::width(self.addr.to_string().as_str())
             .min(window_max_width as usize - 2);
         let middle_name_length =
