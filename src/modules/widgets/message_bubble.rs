@@ -1,4 +1,3 @@
-use ratatui::style::Modifier;
 use ratatui::style::Color;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
@@ -17,9 +16,8 @@ pub enum MsgBubbleAllignment {
 }
 
 pub struct LoadingBarStatus {
-    pub position: u64,
-    pub end: u64,
-    pub changed: bool,
+    pub position: FileSize,
+    pub end: FileSize,
 }
 
 pub enum LoadingBar {
@@ -28,8 +26,18 @@ pub enum LoadingBar {
 }
 
 pub struct LoadingBarWrap {
-    loadingbar: LoadingBar,
-    changed: bool,
+    pub loadingbar: LoadingBar,
+    pub changed: bool,
+}
+
+pub fn is_loading_bar_free(ld: &Option<Arc<Mutex<LoadingBarWrap>>>) -> bool {
+    match &ld {
+        None => true,
+        Some(lock) => match &lock.lock().unwrap().loadingbar {
+            LoadingBar::Status(LoadingBarStatus { position, end }) => position == end,
+            LoadingBar::Error(_) => true,
+        },
+    }
 }
 
 pub struct MsgBubble<'a> {
@@ -86,50 +94,55 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
         let name_length = UnicodeWidthStr::width(sender).min(window_max_width as usize - 2);
 
         // Total length of bubble. Will be only increased.
-        let mut bubble_width = (name_length + 2).min(window_max_width as usize);
+        let mut bubble_inner_width = (name_length).min(window_max_width as usize);
 
-        let mut middle_lines: Vec<Vec<Span<'a>>> = Self::formatted_content(
+        let middle_lines: Vec<String> = Self::formatted_content(
             &self.message,
             &self.loading_bar,
-            style.clone(),
             window_max_width - 4,
-            &mut bubble_width,
-        );
+            &mut bubble_inner_width,
+        )
+        .into_iter()
+        .map(|line| "│ ".to_owned() + &line + " │")
+        .collect();
 
         // +/- 2/4 to bubble_width are related to adding "│ " " │"
 
-        let top_line: Span<'a> = Span::styled(match self.allignment {
-                MsgBubbleAllignment::Left => format!(
-                    "┌{:─<width$}┐",
-                    &sender[..name_length],
-                    width = bubble_width + 2
-                ),
-                MsgBubbleAllignment::Right => format!(
-                    "┌{:─>width$}┐",
-                    &sender[..name_length],
-                    width = bubble_width + 2
-                ),
-            },
-            style.clone(),
-        );
+        let top_line: String = match self.allignment {
+            MsgBubbleAllignment::Left => format!(
+                "┌{:─<width$}┐",
+                &sender[..name_length],
+                width = bubble_inner_width + 2
+            ),
+            MsgBubbleAllignment::Right => format!(
+                "┌{:─>width$}┐",
+                &sender[..name_length],
+                width = bubble_inner_width + 2
+            ),
+        };
 
-        let bot_line: Span<'a> = Span::styled(
-            format!("└{}┘", "─".repeat(bubble_width + 2)),
-            style.clone(),
-        );
+        let bot_line: String = format!("└{}┘", "─".repeat(bubble_inner_width + 2));
 
-        for mid_line in middle_lines.iter_mut() {
-            mid_line.insert(0, Span::styled("│ ", style.clone()));
-            mid_line.push(Span::styled(" │", style.clone()));
-        }
+        let mut rendered_lines = middle_lines;
 
-        let mut rendered_lines: Vec<Line<'a>> = vec![Line::from(top_line)];
+        rendered_lines.insert(0, top_line);
+        rendered_lines.push(bot_line);
 
-        for line in middle_lines.into_iter() {
-            rendered_lines.push(Line::from(line));
-        }
+        let rendered_lines: Vec<Line<'a>> = rendered_lines
+            .into_iter()
+            .map(|line| {
+                let line = match self.allignment {
+                    MsgBubbleAllignment::Left => {
+                        line + &" ".repeat(window_max_width as usize - bubble_inner_width - 4)
+                    }
+                    MsgBubbleAllignment::Right => {
+                        " ".repeat(window_max_width as usize - bubble_inner_width - 4) + &line
+                    }
+                };
 
-        rendered_lines.push(Line::from(bot_line));
+                Line::from(Span::styled(line, style))
+            })
+            .collect();
 
         let height = rendered_lines.len() as u16;
 
@@ -144,12 +157,11 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
 
 impl<'a> MsgBubble<'a> {
     fn formatted_content(
-        message: &'a UserMessage,
-        loading_bar: &'a Option<Arc<Mutex<LoadingBarWrap>>>,
-        parent_style: Style,
+        message: &UserMessage,
+        loading_bar: &Option<Arc<Mutex<LoadingBarWrap>>>,
         window_max_width: u16,
-        bubble_width: &mut usize,
-    ) -> Vec<Vec<Span<'a>>> {
+        bubble_inner_width: &mut usize,
+    ) -> Vec<String> {
         match &message {
             UserMessage::Text(text) => {
                 // Little extra padding, because for text:
@@ -167,18 +179,15 @@ impl<'a> MsgBubble<'a> {
                     .map(|line| UnicodeWidthStr::width(line.as_ref()) as u16)
                     .max()
                     .unwrap_or(0)
-                    .max(*bubble_width as u16);
+                    .max(*bubble_inner_width as u16);
 
-                *bubble_width = max_line_width as usize;
+                *bubble_inner_width = max_line_width as usize;
 
                 lines
                     .into_iter()
                     .map(|line| {
-                            let line_width = UnicodeWidthStr::width(line.as_ref());
-                            vec![
-                                Span::styled(line, parent_style),
-                                Span::styled(" ".repeat({ *bubble_width } - 4 - line_width), parent_style),
-                            ]
+                        let line_width = UnicodeWidthStr::width(line.as_ref());
+                        String::from(line) + &" ".repeat({ *bubble_inner_width } - line_width)
                     })
                     .collect()
             }
@@ -187,22 +196,16 @@ impl<'a> MsgBubble<'a> {
                 let file_size_len = UnicodeWidthStr::width(file_size.as_str());
 
                 let top_line = "┌──────┬─".to_string() + &"─".repeat(file_size_len) + "─┐ ";
-                let mid_line = "│ FILE │".to_string() + &file_size + " │ ";
+                let mid_line = "│ FILE │ ".to_string() + &file_size + " │ ";
                 let bot_line = "└──────┴─".to_string() + &"─".repeat(file_size_len) + "─┘ ";
 
-                let file_box_style = parent_style.clone().add_modifier(Modifier::BOLD);
-
-                let mut styled_lines: Vec<Vec<Span<'a>>> = vec![
-                    vec![Span::styled(top_line, file_box_style)],
-                    vec![Span::styled(mid_line, file_box_style)],
-                    vec![Span::styled(bot_line, file_box_style)],
-                ];
+                let mut lines: Vec<String> = vec![top_line, mid_line, bot_line];
 
                 let name_len = UnicodeWidthStr::width(file_name.as_str());
 
-                styled_lines[0].push(Span::styled(" ".repeat(name_len), parent_style));
-                styled_lines[1].push(Span::styled(file_name, parent_style));
-                styled_lines[2].push(Span::styled(" ".repeat(name_len), parent_style));
+                lines[0] += &" ".repeat(name_len);
+                lines[1] += file_name;
+                lines[2] += &" ".repeat(name_len);
 
                 let total_length = 12 + file_size_len + name_len;
 
@@ -212,34 +215,29 @@ impl<'a> MsgBubble<'a> {
 
                     match &locked_loading_bar {
                         LoadingBar::Status(loading_bar_status) => {
-                            let procentage = (loading_bar_status.position * 100) / loading_bar_status.end;
-                            let filled_len = ((total_length - 4) * procentage as usize) / 100;
+                            let procentage =
+                                (loading_bar_status.position * 100) / loading_bar_status.end.max(1);
+                            let filled_len = ((total_length - 5) * procentage as usize) / 100;
 
-                            let bar_style = parent_style.clone().fg(Color::Green);
-
-                            styled_lines.push(vec![
-                                Span::styled(format!("{:2}% ", procentage), parent_style),
-                                Span::styled("═".repeat(filled_len), bar_style),
-                                Span::styled("─".repeat(total_length - filled_len), bar_style),
-                            ]);
-                        },
+                            lines.push(
+                                format!("{:3}% ", procentage)
+                                    + &"═".repeat(filled_len)
+                                    + &"─".repeat(total_length - 5 - filled_len),
+                            );
+                        }
                         LoadingBar::Error(err) => {
-                            let err_style = parent_style.clone().fg(Color::Red);
-
-                            styled_lines.push(vec![
-                                Span::styled(format!("ERR: {: <width$}", err, width = total_length - 5), err_style),
-                            ]);
-                        },
+                            lines.push(format!("ERR: {: <width$}", err, width = total_length - 5));
+                        }
                     }
                 }
 
                 let line_width = total_length
                     .min(window_max_width as usize)
-                    .max(*bubble_width);
+                    .max(*bubble_inner_width);
 
-                *bubble_width = line_width as usize;
+                *bubble_inner_width = line_width as usize;
 
-                styled_lines
+                lines
             }
         }
     }

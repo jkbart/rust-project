@@ -1,4 +1,4 @@
-    // TODO: make config be read at a start of program from external file to avoid recompilation after changing any setting.
+// TODO: make config be read at a start of program from external file to avoid recompilation after changing any setting.
 
 // TODO array of multicasts address in case of busy port.
 pub static MULTICAST_IP: &str = "239.42.17.19";
@@ -6,12 +6,12 @@ pub static MULTICAST_PORT: u16 = 7899;
 
 pub static UNIQUE_BYTES: &[u8] = b"CHATapp>4RxPOv@1Gy8SZ8syH7$MlVAA2>0y]D`%KTIN\"Y[Lk9Z}\"k{p)";
 
-use std::sync::Mutex;
+use copypasta::ClipboardContext;
 use directories::UserDirs;
 use once_cell::sync::Lazy;
 use rand::{distributions::Alphanumeric, Rng};
 use std::path::PathBuf;
-use copypasta::ClipboardContext;
+use std::sync::Mutex;
 
 // Lazily initialized static variable for USER_ID
 pub static USER_ID: Lazy<u64> = Lazy::new(|| {
@@ -33,6 +33,5 @@ pub static DOWNLOAD_PATH: Lazy<PathBuf> = Lazy::new(|| {
         .to_path_buf()
 });
 
-pub static CLIPBOARD: Lazy<Mutex<ClipboardContext>> = Lazy::new(|| {
-    Mutex::new(ClipboardContext::new().unwrap())
-});
+pub static CLIPBOARD: Lazy<Mutex<ClipboardContext>> =
+    Lazy::new(|| Mutex::new(ClipboardContext::new().unwrap()));

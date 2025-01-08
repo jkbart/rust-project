@@ -35,15 +35,15 @@ use tokio::sync::mpsc;
 
 use tui_textarea::TextArea;
 
-use copypasta::{ClipboardContext, ClipboardProvider};
+use copypasta::ClipboardProvider;
 
 pub enum EditorMode {
     Text,
     File,
 }
 
-type DownloadedFilesMap = Arc<Mutex<HashMap<u64, mpsc::UnboundedSender<InternalMessage>>>>;
-type OwnedFilesMap = Arc<Mutex<HashMap<u64, PathBuf>>>;
+type DownloadedFilesMap = Arc<Mutex<HashMap<FileID, mpsc::UnboundedSender<InternalMessage>>>>;
+type OwnedFilesMap = Arc<Mutex<HashMap<FileID, PathBuf>>>;
 
 /// Struct for messages to be displayed with context.
 pub struct MessageContext {
@@ -97,16 +97,24 @@ impl PeerState<'_> {
 
     pub fn download_file(
         &self,
-        file_id: u64,
+        file_id: FileID,
         file_name: String,
-        file_size: u64,
-        loading_bar: Arc<Mutex<LoadingBar>>,
+        file_size: FileSize,
+        loading_bar: Arc<Mutex<LoadingBarWrap>>,
+        downloaded_msgs: DownloadedFilesMap,
     ) {
         let (tx, rx) = mpsc::unbounded_channel::<InternalMessage>();
 
         self.downloaded_files.lock().unwrap().insert(file_id, tx);
 
-        tokio::task::spawn(file_downloader(rx, file_name, file_size, loading_bar));
+        tokio::task::spawn(file_downloader(
+            rx,
+            file_id,
+            file_name,
+            file_size,
+            loading_bar,
+            downloaded_msgs,
+        ));
 
         self.send(Message::Internal(InternalMessage::FileRequest(file_id)));
     }
@@ -141,11 +149,14 @@ impl PeerState<'_> {
                             }
                             UserMessage::FileHeader(file_name, file_size, file_id) => {
                                 if message_bubble.received_from.is_some()
-                                    && message_bubble.loading_bar.is_none()
+                                    && is_loading_bar_free(&message_bubble.loading_bar)
                                 {
-                                    let loading_bar = Arc::new(Mutex::new(LoadingBar {
-                                        position: 0,
-                                        end: 0,
+                                    // Loading bar will be loaded later, those are placeholder values.
+                                    let loading_bar = Arc::new(Mutex::new(LoadingBarWrap {
+                                        loadingbar: LoadingBar::Status(LoadingBarStatus {
+                                            position: 0,
+                                            end: 1,
+                                        }),
                                         changed: true,
                                     }));
                                     message_bubble.loading_bar = Some(loading_bar.clone());
@@ -155,7 +166,13 @@ impl PeerState<'_> {
                                     let file_size = *file_size;
                                     let file_id = *file_id;
 
-                                    self.download_file(file_id, file_name, file_size, loading_bar);
+                                    self.download_file(
+                                        file_id,
+                                        file_name,
+                                        file_size,
+                                        loading_bar,
+                                        self.downloaded_files.clone(),
+                                    );
                                 }
                             }
                         }
@@ -198,7 +215,7 @@ impl PeerState<'_> {
                             }
                             EditorMode::File => {
                                 let file_path = PathBuf::from(&self.editor.lines()[0]);
-                                let file_id: u64 = rand::thread_rng().gen();
+                                let file_id: FileID = rand::thread_rng().gen();
 
                                 if std::fs::metadata(&file_path)
                                     .map(|metadata| metadata.is_file())
@@ -209,7 +226,7 @@ impl PeerState<'_> {
                                         .unwrap()
                                         .to_string_lossy() // Maybe this could be improved.
                                         .to_string();
-                                    let file_size: u64 = std::fs::metadata(&file_path)
+                                    let file_size: FileSize = std::fs::metadata(&file_path)
                                         .map(|metadata| metadata.len())
                                         .unwrap_or(0);
 
@@ -321,6 +338,11 @@ async fn message_reader(
                         let _ = tx.send(internal_message);
                     }
                 }
+                InternalMessage::FileContentError(id, _) => {
+                    if let Some(tx) = downloaded_files.lock().unwrap().get(&id) {
+                        let _ = tx.send(internal_message);
+                    }
+                }
             },
         }
     }
@@ -355,18 +377,24 @@ async fn message_writer(
 // Function responsible for downloading given file in the background.
 async fn file_downloader(
     mut packets: mpsc::UnboundedReceiver<InternalMessage>,
+    file_id: FileID,
     file_name: String,
-    file_size: u64,
-    loading_bar: Arc<Mutex<LoadingBar>>,
+    file_size: FileSize,
+    loading_bar: Arc<Mutex<LoadingBarWrap>>,
+    downloaded_files: DownloadedFilesMap,
 ) {
     let mut file_path = DOWNLOAD_PATH.clone();
     file_path.push(&file_name);
 
-    *loading_bar.lock().unwrap() = LoadingBar {
-        position: 0,
-        end: file_size,
+    *loading_bar.lock().unwrap() = LoadingBarWrap {
+        loadingbar: LoadingBar::Status(LoadingBarStatus {
+            position: 0,
+            end: file_size,
+        }),
         changed: true,
     };
+
+    let mut byte_cnt = 0;
 
     // If files [name, name (1), ..., name (9)] exists in download dir, abandon download.
     'main: for i in 0..10 {
@@ -385,47 +413,94 @@ async fn file_downloader(
             }
         };
 
-        let mut byte_cnt = 0;
-
         while let Some(packet) = packets.recv().await {
-            if let InternalMessage::FileContent(_, byte_idx, bytes) = packet {
-                if byte_idx != byte_cnt || byte_idx + bytes.len() as u64 > file_size {
+            match packet {
+                InternalMessage::FileContent(_, byte_idx, bytes) => {
+                    if byte_idx != byte_cnt || byte_idx + bytes.len() as FileSize > file_size {
+                        break 'main;
+                    }
+
+                    byte_cnt += bytes.len() as FileSize;
+
+                    // For some reason writing drop explicitly doesnt work. Have to use {} instead.
+                    {
+                        let mut loading_bar_lock = loading_bar.lock().unwrap();
+
+                        if let LoadingBar::Status(LoadingBarStatus { position, .. }) =
+                            &mut loading_bar_lock.loadingbar
+                        {
+                            *position = byte_cnt;
+                            loading_bar_lock.changed = true;
+                        }
+                    }
+
+                    if let Err(e) = file.write_all(&bytes).await {
+                        *loading_bar.lock().unwrap() = LoadingBarWrap {
+                            loadingbar: LoadingBar::Error(e.to_string()),
+                            changed: true,
+                        };
+
+                        break 'main;
+                    }
+                }
+                InternalMessage::FileContentError(_, e) => {
+                    *loading_bar.lock().unwrap() = LoadingBarWrap {
+                        loadingbar: LoadingBar::Error(e),
+                        changed: true,
+                    };
+
                     break 'main;
                 }
+                _ => {}
+            }
 
-                byte_cnt += bytes.len() as u64;
-
-                // For some reason writing drop explicitly doesnt work. Have to use {} instead.
-                {
-                    let mut loading_bar_lock = loading_bar.lock().unwrap();
-
-                    loading_bar_lock.position = byte_cnt;
-                    loading_bar_lock.changed = true;
-                }
-
-                if file.write_all(&bytes).await.is_err() {
-                    break 'main;
-                }
+            if byte_cnt == file_size {
+                break 'main;
             }
         }
     }
+
+    if byte_cnt != file_size {
+        *loading_bar.lock().unwrap() = LoadingBarWrap {
+            loadingbar: LoadingBar::Error(format!(
+                "Download error! Status: {}/{}",
+                byte_cnt, file_size
+            )),
+            changed: true,
+        };
+    }
+
+    // Clean map after yourself.
+    let _ = downloaded_files.lock().unwrap().remove(&file_id);
 }
 
 // Function responsible for uploading given file in the background.
 async fn file_uploader(
     packets: mpsc::UnboundedSender<Message>,
     file_name: PathBuf,
-    file_id: u64,
-) -> std::io::Result<()> {
+    file_id: FileID,
+) {
     // Open the file in read-only mode
-    let mut file = tokio::fs::File::open(file_name).await?;
+    let Ok(mut file) = tokio::fs::File::open(file_name).await else {
+        let _ = packets.send(Message::Internal(InternalMessage::FileContentError(
+            file_id,
+            "File does not exsists anymore!".to_string(),
+        )));
+        return;
+    };
 
     let mut buffer = vec![0; 4096]; // Buffer size 4096 bytes
 
     let mut byte_idx = 0;
 
     loop {
-        let n = file.read(&mut buffer).await?;
+        let Ok(n) = file.read(&mut buffer).await else {
+            let _ = packets.send(Message::Internal(InternalMessage::FileContentError(
+                file_id,
+                "Error reading file!".to_string(),
+            )));
+            return;
+        };
 
         if n == 0 {
             break; // End of file
@@ -436,14 +511,12 @@ async fn file_uploader(
 
         // Send the chunk through the sender
         let message = Message::Internal(InternalMessage::FileContent(file_id, byte_idx, chunk));
-        byte_idx += n as u64;
+        byte_idx += n as FileSize;
 
         if packets.send(message).is_err() {
             break;
         }
     }
-
-    Ok(())
 }
 
 // Implentation of rendering functions.

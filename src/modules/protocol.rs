@@ -6,18 +6,22 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::UNIQUE_BYTES;
 
+pub type FileSize = u64;
+pub type FileID = u64;
+
 /// Struct with content of user message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum UserMessage {
     Text(String),
-    FileHeader(String, u64, u64), // Filename, filesize, file-id
+    FileHeader(String, FileSize, FileID), // Filename, filesize, file-id
 }
 
 /// Struct with content of internal message.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum InternalMessage {
-    FileRequest(u64),               // File-id
-    FileContent(u64, u64, Vec<u8>), // File-id, first byte idx, bytes
+    FileRequest(FileID),                    // File-id
+    FileContent(FileID, FileSize, Vec<u8>), // File-id, first byte idx, bytes
+    FileContentError(FileID, String),
 }
 
 /// Main message structure.
