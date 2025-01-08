@@ -17,7 +17,7 @@ This project is implemented as part of the Rust course at the University of Wars
 - `'Esc'`: Go back to the peer list view.  
 - `'Tab'`: Toggle between text-sending mode and file-sending mode.  
 - `'Enter'` + Modifier (*`'Alt'`, `'Shift'`, `'Ctrl'`, etc.*): Insert a new line. *Warning* you should use modifier that is not binded by your environment to some other action so that application can detect that event.
-- `'Enter'`: Send the composed message or file.  
+- `'Enter'`: Send the composed message or file. For a file to be sent, there must be a single global path to an existing file in the editor.
 - `⬆️`: Switch to the message list view.  
 - Other keys: Work like in standard text editors (keyboard-wise, no mouse action is being detected currently).  
 
