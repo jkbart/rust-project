@@ -35,7 +35,7 @@ use tokio::sync::mpsc;
 
 use tui_textarea::TextArea;
 
-use copypasta::ClipboardProvider;
+use copypasta::{ClipboardContext, ClipboardProvider};
 
 pub enum EditorMode {
     Text,
