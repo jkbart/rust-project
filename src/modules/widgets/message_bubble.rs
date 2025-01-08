@@ -78,7 +78,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
         &mut self.render_cache
     }
 
-    // Currently prerender performs a lot of operations on vecs and strings. 
+    // Currently prerender performs a lot of operations on vecs and strings.
     // This is ok since number of msgs is small and also we are caching rendered lines most of the times.
     fn prerender(&mut self, window_max_width: u16, selected: bool) {
         let window_max_width = window_max_width.max(10); // On smaller windows this will cause to mess up visuals but will keep it from panicing.
@@ -104,7 +104,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
         let mut middle_lines: Vec<Vec<Span<'a>>> = Self::formatted_content(
             &self.message,
             &self.loading_bar,
-            style.clone(),
+            style,
             window_max_width - 4,
             &mut bubble_inner_width,
         );
@@ -130,7 +130,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
                     width = bubble_inner_width + 2
                 ),
             },
-            style.clone(),
+            style,
         );
 
         let bot_line: Span<'a> = Span::styled(
@@ -139,7 +139,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
                 " ".repeat(left_padding_len),
                 "─".repeat(bubble_inner_width + 2)
             ),
-            style.clone(),
+            style,
         );
 
         for mid_line in middle_lines.iter_mut() {
@@ -179,7 +179,7 @@ impl<'a> MsgBubble<'a> {
                 // Little extra padding, because for text:
                 // "C:\Users\jbart\AppData\Local\Packages\Microsoft.WindowsFeedbackHub_8wekyb3d8bbwe\LocalState\{18c6d0aa-02b6-4df0-982c-40fd41c34137}\Capture0.png"
                 // textwrap::wrap returned one line longer than was asked. This is a problem with textwrap cargo.
-                let mut lines = textwrap::wrap(&text, window_max_width as usize - 5);
+                let mut lines = textwrap::wrap(text, window_max_width as usize - 5);
 
                 // Ensure that lines are not empty.
                 if lines.is_empty() {
@@ -217,7 +217,7 @@ impl<'a> MsgBubble<'a> {
                 let mid_line = "│ FILE │ ".to_string() + &file_size + " │ ";
                 let bot_line = "└──────┴─".to_string() + &"─".repeat(file_size_len) + "─┘ ";
 
-                let file_box_style = parent_style.clone().add_modifier(Modifier::BOLD);
+                let file_box_style = parent_style.add_modifier(Modifier::BOLD);
 
                 let mut styled_lines: Vec<Vec<Span<'a>>> = vec![
                     vec![Span::styled(top_line, file_box_style)],
@@ -242,7 +242,7 @@ impl<'a> MsgBubble<'a> {
                             let filled_len =
                                 ((*bubble_inner_width - 5) * procentage as usize) / 100;
 
-                            let bar_style = parent_style.clone().fg(Color::Green);
+                            let bar_style = parent_style.fg(Color::Green);
 
                             styled_lines.push(vec![
                                 Span::styled(format!("{:3}% ", procentage), parent_style),
@@ -254,11 +254,11 @@ impl<'a> MsgBubble<'a> {
                             ]);
                         }
                         LoadingBar::Error(err) => {
-                            let err_style = parent_style.clone().fg(Color::Red);
+                            let err_style = parent_style.fg(Color::Red);
                             let err_len = UnicodeWidthStr::width(err.as_str());
 
                             *bubble_inner_width = (*bubble_inner_width)
-                                .max(err_len as usize + 5)
+                                .max(err_len + 5)
                                 .min(window_max_width as usize);
 
                             styled_lines.push(vec![Span::styled(
@@ -278,7 +278,10 @@ impl<'a> MsgBubble<'a> {
                         + &" ".repeat(*bubble_inner_width - file_header_len - name_len),
                     parent_style,
                 ));
-                styled_lines[2].push(Span::styled(" ".repeat(*bubble_inner_width - file_header_len), parent_style));
+                styled_lines[2].push(Span::styled(
+                    " ".repeat(*bubble_inner_width - file_header_len),
+                    parent_style,
+                ));
 
                 styled_lines
             }
