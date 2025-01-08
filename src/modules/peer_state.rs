@@ -27,9 +27,9 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
+use crate::modules::message_bubble::*;
 use crate::modules::tui::AppPosition;
 use crate::modules::widgets::list_component::*;
-use crate::modules::widgets::message_bubble::*;
 
 use tokio::sync::mpsc;
 
