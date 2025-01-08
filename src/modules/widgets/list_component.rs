@@ -6,12 +6,14 @@ use ratatui::prelude::Rect;
 use ratatui::text::Line;
 
 // Wheter we should render top lines or bottom lines first if whole item doesnt fit.
+#[derive(Debug)]
 pub enum RenderingTop {
     Top,
     Bottom,
 }
 
 // Rendering cache for items.
+#[derive(Debug)]
 pub struct ListCache<'a> {
     cache: Vec<Line<'a>>,
     width: u16,

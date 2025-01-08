@@ -95,13 +95,13 @@ impl PeerState<'_> {
         let _ = self.message_writer_queue.send(msg);
     }
 
-    pub fn download_file(
+    // Function used for downloading files with given parameters.
+    fn download_file(
         &self,
         file_id: FileID,
         file_name: String,
         file_size: FileSize,
         loading_bar: Arc<Mutex<LoadingBarWrap>>,
-        downloaded_msgs: DownloadedFilesMap,
     ) {
         let (tx, rx) = mpsc::unbounded_channel::<InternalMessage>();
 
@@ -113,10 +113,75 @@ impl PeerState<'_> {
             file_name,
             file_size,
             loading_bar,
-            downloaded_msgs,
+            self.downloaded_files.clone(),
         ));
 
         self.send(Message::Internal(InternalMessage::FileRequest(file_id)));
+    }
+
+    // Send file-msg containg this file if exists.
+    pub fn upload_file(&mut self, file_path: PathBuf) {
+        let file_id: FileID = rand::thread_rng().gen();
+
+        if std::fs::metadata(&file_path)
+            .map(|metadata| metadata.is_file())
+            .unwrap_or(false)
+        {
+            let file_name: String = file_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy() // Maybe this could be improved.
+                .to_string();
+
+            let file_size: FileSize = std::fs::metadata(&file_path)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
+
+            self.owned_files.lock().unwrap().insert(file_id, file_path);
+
+            self.editor = TextArea::default();
+
+            self.send(Message::User(UserMessage::FileHeader(
+                file_name, file_size, file_id,
+            )));
+        }
+    }
+
+    pub fn handle_action_on_msg(&mut self) {
+        let message_bubble = self.messages.get_selected().unwrap();
+
+        match &message_bubble.message {
+            UserMessage::Text(text) => {
+                let _ = CLIPBOARD.lock().unwrap().set_contents(text.clone());
+            }
+            UserMessage::FileHeader(file_name, file_size, file_id) => {
+                if message_bubble.received_from.is_some()
+                    && is_loading_bar_free(&message_bubble.loading_bar)
+                {
+                    // Loading bar will be loaded later, those are placeholder values.
+                    let loading_bar = Arc::new(Mutex::new(LoadingBarWrap {
+                        loadingbar: LoadingBar::Status(LoadingBarStatus {
+                            position: 0,
+                            end: 1,
+                        }),
+                        changed: true,
+                    }));
+                    message_bubble.loading_bar = Some(loading_bar.clone());
+
+                    // Copy fist to allow for mut borrow of self in self.download_file call - droping message_bubble refs.
+                    let file_name = file_name.clone();
+                    let file_size = *file_size;
+                    let file_id = *file_id;
+
+                    self.download_file(
+                        file_id,
+                        file_name,
+                        file_size,
+                        loading_bar,
+                    );
+                }
+            }
+        }
     }
 
     pub fn handle_event(&mut self, key: KeyEvent, _current_screen: &mut AppPosition) -> bool {
@@ -141,41 +206,7 @@ impl PeerState<'_> {
                 }
                 key if key.code == KeyCode::Enter => {
                     if key.kind == crossterm::event::KeyEventKind::Press {
-                        let message_bubble = self.messages.get_selected().unwrap();
-
-                        match &message_bubble.message {
-                            UserMessage::Text(text) => {
-                                let _ = CLIPBOARD.lock().unwrap().set_contents(text.clone());
-                            }
-                            UserMessage::FileHeader(file_name, file_size, file_id) => {
-                                if message_bubble.received_from.is_some()
-                                    && is_loading_bar_free(&message_bubble.loading_bar)
-                                {
-                                    // Loading bar will be loaded later, those are placeholder values.
-                                    let loading_bar = Arc::new(Mutex::new(LoadingBarWrap {
-                                        loadingbar: LoadingBar::Status(LoadingBarStatus {
-                                            position: 0,
-                                            end: 1,
-                                        }),
-                                        changed: true,
-                                    }));
-                                    message_bubble.loading_bar = Some(loading_bar.clone());
-
-                                    // Copy fist to allow for mut borrow of self in self.download_file call - droping message_bubble refs.
-                                    let file_name = file_name.clone();
-                                    let file_size = *file_size;
-                                    let file_id = *file_id;
-
-                                    self.download_file(
-                                        file_id,
-                                        file_name,
-                                        file_size,
-                                        loading_bar,
-                                        self.downloaded_files.clone(),
-                                    );
-                                }
-                            }
-                        }
+                        self.handle_action_on_msg();
                     }
                 }
                 _ => {}
@@ -215,35 +246,13 @@ impl PeerState<'_> {
                             }
                             EditorMode::File => {
                                 let file_path = PathBuf::from(&self.editor.lines()[0]);
-                                let file_id: FileID = rand::thread_rng().gen();
-
-                                if std::fs::metadata(&file_path)
-                                    .map(|metadata| metadata.is_file())
-                                    .unwrap_or(false)
-                                {
-                                    let file_name: String = file_path
-                                        .file_name()
-                                        .unwrap()
-                                        .to_string_lossy() // Maybe this could be improved.
-                                        .to_string();
-                                    let file_size: FileSize = std::fs::metadata(&file_path)
-                                        .map(|metadata| metadata.len())
-                                        .unwrap_or(0);
-
-                                    self.owned_files.lock().unwrap().insert(file_id, file_path);
-
-                                    self.editor = TextArea::default();
-
-                                    self.send(Message::User(UserMessage::FileHeader(
-                                        file_name, file_size, file_id,
-                                    )));
-                                }
+                                self.upload_file(file_path);
                             }
                         }
                     }
                 }
                 key if key.code == KeyCode::Char('v') && key.modifiers == KeyModifiers::CONTROL => {
-                    #[cfg(not(target_os = "windows"))]
+                    #[cfg(not(target_os = "windows"))] // On windows this CTRL-V is equal to CTRL-SHIFT-V on Linux (Patch for convinient shortcut)
                     {
                         if let Ok(mut clipboard) = ClipboardContext::new() {
                             if let Ok(contents) = clipboard.get_contents() {
@@ -304,6 +313,8 @@ impl From<ConnectionData> for PeerState<'_> {
         }
     }
 }
+
+//      ASYNC FUNCTIONS UPDATING STATE IN BACKGROUND
 
 // Function responsible for reading incoming msgs in the background.
 async fn message_reader(
@@ -518,6 +529,8 @@ async fn file_uploader(
         }
     }
 }
+
+//      FUNCTIONS RELATED TO RENDERING
 
 // Implentation of rendering functions.
 impl PeerState<'_> {

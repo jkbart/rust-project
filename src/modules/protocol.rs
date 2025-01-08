@@ -10,14 +10,14 @@ pub type FileSize = u64;
 pub type FileID = u64;
 
 /// Struct with content of user message.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum UserMessage {
     Text(String),
     FileHeader(String, FileSize, FileID), // Filename, filesize, file-id
 }
 
 /// Struct with content of internal message.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum InternalMessage {
     FileRequest(FileID),                    // File-id
     FileContent(FileID, FileSize, Vec<u8>), // File-id, first byte idx, bytes
@@ -25,7 +25,7 @@ pub enum InternalMessage {
 }
 
 /// Main message structure.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Message {
     User(UserMessage),
     Internal(InternalMessage),
@@ -33,14 +33,14 @@ pub enum Message {
 
 /// Struct that by being broadcasted annouces user presence.
 /// Should not be sent as plain serialization in order to avoid misdetections.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UserDiscovery {
     pub port: u16,
     pub user_id: u64,
 }
 
 /// Struct that is being is send once at the begining of connection.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ConnectionInfo {
     pub user_name: String,
     // Add id, currently under some conditions, user can have auto 2 conversations with same person.

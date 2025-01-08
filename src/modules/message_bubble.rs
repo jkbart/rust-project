@@ -11,21 +11,25 @@ use unicode_width::UnicodeWidthStr;
 use crate::modules::protocol::*;
 use crate::modules::widgets::list_component::*;
 
+#[derive(Debug)]
 pub enum MsgBubbleAllignment {
     Left,
     Right,
 }
 
+#[derive(Debug)]
 pub struct LoadingBarStatus {
     pub position: FileSize,
     pub end: FileSize,
 }
 
+#[derive(Debug)]
 pub enum LoadingBar {
     Status(LoadingBarStatus),
     Error(String),
 }
 
+#[derive(Debug)]
 pub struct LoadingBarWrap {
     pub loadingbar: LoadingBar,
     pub changed: bool,
@@ -41,6 +45,7 @@ pub fn is_loading_bar_free(ld: &Option<Arc<Mutex<LoadingBarWrap>>>) -> bool {
     }
 }
 
+#[derive(Debug)]
 pub struct MsgBubble<'a> {
     pub received_from: Option<String>,
     pub message: UserMessage,
