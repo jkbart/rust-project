@@ -107,7 +107,7 @@ impl<'a> ListItem<'a> for MsgBubble<'a> {
         let name_length = (UnicodeWidthStr::width(sender) as u16).min(window_max_width - 2);
 
         // Total length of bubble insides (inside "│ " " │"). Will be only increased.
-        let mut bubble_inner_width = (name_length.max(2) - 2).min(window_max_width);
+        let mut bubble_inner_width = (name_length.max(2) - 2).min(window_max_width - 4);
 
         let mut middle_lines: Vec<Vec<Span<'a>>> = Self::formatted_content(
             &self.message,
@@ -243,6 +243,7 @@ impl<'a> MsgBubble<'a> {
 
                 let name_len = UnicodeWidthStr::width(file_name.as_str()) as u16;
 
+                // We will later adjust it to window_max_width. If window_max_width is small enough, then this bubble can go out of window.
                 *bubble_inner_width = (*bubble_inner_width).max(12 + file_size_len + name_len);
 
                 // Calculate loading bar string based on progress.
@@ -298,6 +299,8 @@ impl<'a> MsgBubble<'a> {
                     " ".repeat((*bubble_inner_width - file_header_len) as usize),
                     parent_style,
                 ));
+
+                *bubble_inner_width = (*bubble_inner_width).min(window_max_width);
 
                 styled_lines
             }
