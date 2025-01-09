@@ -176,12 +176,7 @@ impl PeerState<'_> {
                     let file_size = *file_size;
                     let file_id = *file_id;
 
-                    self.download_file(
-                        file_id,
-                        file_name,
-                        file_size,
-                        loading_bar,
-                    );
+                    self.download_file(file_id, file_name, file_size, loading_bar);
                 }
             }
         }
@@ -255,7 +250,8 @@ impl PeerState<'_> {
                     }
                 }
                 key if key.code == KeyCode::Char('v') && key.modifiers == KeyModifiers::CONTROL => {
-                    #[cfg(not(target_os = "windows"))] // On windows this CTRL-V is equal to CTRL-SHIFT-V on Linux (Patch for convinient shortcut)
+                    #[cfg(not(target_os = "windows"))]
+                    // On windows this CTRL-V is equal to CTRL-SHIFT-V on Linux (Patch for convinient shortcut)
                     {
                         if let Ok(mut clipboard) = ClipboardContext::new() {
                             if let Ok(contents) = clipboard.get_contents() {
