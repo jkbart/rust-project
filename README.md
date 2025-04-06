@@ -1,8 +1,8 @@
-# P2P File Transfer and Messaging CLI Application
+# P2P File Transfer and Messaging TUI Application
 
 ## Project Description
 
-A command-line application (CLI) that enables peer-to-peer (P2P) messaging and file transfer between users on the same local network. Inspired by [sharedrop.io](https://sharedrop.io), this application allows users to discover available devices, establish secure TCP connections, and transfer data without the need for external servers.
+A TUI application that enables peer-to-peer messaging and file transfer between users on the same local network. Inspired by [sharedrop.io](https://sharedrop.io), this application allows users to discover available devices, establish secure TCP connections, and transfer data without the need for external servers.
 
 This project is implemented as part of the Rust course at the University of Warsaw (MIMUW).
 
