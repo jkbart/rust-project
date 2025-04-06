@@ -6,6 +6,9 @@ A command-line application (CLI) that enables peer-to-peer (P2P) messaging and f
 
 This project is implemented as part of the Rust course at the University of Warsaw (MIMUW).
 
+![image](https://github.com/user-attachments/assets/3b463dc8-370f-49db-8935-de908b9b4097)
+
+
 ## Controls
 
 ### Peer List
